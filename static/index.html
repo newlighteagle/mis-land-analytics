@@ -196,6 +196,8 @@
           <div id="editHelp" class="muted" hidden>
             <b>Geser</b> titik untuk membetulkan posisi · <b>klik peta</b> untuk menambah titik ·
             <b>klik titik</b> lalu tombol Hapus.<br>
+            Tepi <span style="color:#FF6D00;font-weight:700">oranye</span> = sudah dikoreksi manusia,
+            tepi hitam = masih draf model.<br>
             <span id="editStat"></span>
             <button id="delPoint" class="danger" hidden>Hapus titik terpilih</button>
           </div>
@@ -292,9 +294,13 @@ map.on('load', () => {
         'lemah', '#FFD400', 'kosong', '#FF1744', '#FFFFFF'],
       'circle-opacity': 0.95,
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4, 20, 8],
-      // titik hasil koreksi manusia bergaris tepi putih agar mudah dibedakan
-      'circle-stroke-color': ['match', ['get', 'source'], 'auto', '#0b0b0b', '#ffffff'],
-      'circle-stroke-width': ['match', ['get', 'source'], 'auto', 1.4, 2.2],
+      // Asal titik dibedakan lewat WARNA garis tepi saja, tidak lewat lebar.
+      // Sebelumnya titik hasil koreksi diberi tepi putih tebal — di atas isian
+      // putih (kategori 'unknown') tepi itu menyatu dengan isiannya sehingga
+      // titiknya tampak lebih besar, padahal ukurannya sama.
+      'circle-stroke-color': ['match', ['get', 'source'],
+        'auto', '#0b0b0b', '#FF6D00'],
+      'circle-stroke-width': 1.6,
     } });
   map.on('click', 'trees', e => {
     if (editMode) return;
