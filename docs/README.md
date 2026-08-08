@@ -22,6 +22,7 @@ Dokumentasi dipecah atomic — satu file, satu topik. Mulai dari ikhtisar, lalu 
 | [13-modul-tree-grid.md](13-modul-tree-grid.md) | **Peta pohon via fitting kisi tanam** — metode yang dipakai dashboard |
 | [14-sumber-citra.md](14-sumber-citra.md) | Sumber citra (Google), cache tile, dan catatan lisensi |
 | [15-evaluasi-model.md](15-evaluasi-model.md) | **Kerangka evaluasi & riwayat model** — metrik akurasi posisi titik vs pusat tajuk |
+| [16-registrasi-titik.md](16-registrasi-titik.md) | **Registrasi titik** — draf model + koreksi manusia di peta |
 
 ## Peta file kode
 

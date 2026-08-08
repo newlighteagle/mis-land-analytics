@@ -36,6 +36,12 @@
   input[type=number] { width: 80px; padding: 6px; border: 1px solid #bbb; border-radius: 6px; }
   select { width: 100%; padding: 6px; border: 1px solid #bbb; border-radius: 6px; margin: 3px 0 6px; }
   #versionPick { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+  #editBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+  #editToggle { width: 100%; background: #eee; color: #333; }
+  #editToggle.on { background: #2d6a4f; color: #fff; }
+  #editHelp { margin-top: 8px; line-height: 1.6; }
+  button.danger { background: #c1121f; margin-top: 6px; }
+  #map.editing { cursor: crosshair; }
   .big { font-size: 28px; font-weight: 700; color: #2d6a4f; }
   .muted { color: #666; font-size: 12px; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
@@ -100,6 +106,15 @@
         <div id="versionInfo" class="muted"></div>
       </div>
       <div id="summary"></div>
+      <div id="editBox">
+        <button id="editToggle">✏️ Mode registrasi titik</button>
+        <div id="editHelp" class="muted" hidden>
+          <b>Geser</b> titik untuk membetulkan posisi · <b>klik peta</b> untuk menambah titik ·
+          <b>klik titik</b> lalu tombol Hapus.<br>
+          <span id="editStat"></span>
+          <button id="delPoint" class="danger" hidden>Hapus titik terpilih</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <h2>Hasil analisa</h2>
@@ -205,9 +220,13 @@ map.on('load', () => {
       'circle-opacity': 0.95,
       // titik ikut membesar saat zoom in supaya tetap terbaca di skala persil
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4, 20, 8],
-      'circle-stroke-color': '#0b0b0b', 'circle-stroke-width': 1.4,
+      // titik hasil koreksi manusia diberi garis tepi putih agar mudah dibedakan
+      'circle-stroke-color': ['match', ['get', 'source'],
+        'auto', '#0b0b0b', '#ffffff'],
+      'circle-stroke-width': ['match', ['get', 'source'], 'auto', 1.4, 2.2],
     } });
   map.on('click', 'trees', e => {
+    if (editMode) return;              // saat mode registrasi, klik dipakai untuk memilih
     const f = e.features[0], p = f.properties;
     const meta = {
       sehat:  ['#00E5FF', 'Sehat', 'Mahkota terdeteksi jelas dan rimbun'],
@@ -443,14 +462,99 @@ function showVersionInfo() {
 
 $('modelVersion').addEventListener('change', () => { showVersionInfo(); loadTrees(); });
 
+let treeFC = { type: 'FeatureCollection', features: [] };
+
 async function loadTrees() {
   const v = $('modelVersion').value;
   const url = `/api/parcel/${currentPk}/trees` + (v ? `?version=${encodeURIComponent(v)}` : '');
-  const fc = await (await fetch(url)).json();
-  map.getSource('trees').setData(fc);
-  renderSummary(fc.features);
-  return fc.features.length;
+  treeFC = await (await fetch(url)).json();
+  map.getSource('trees').setData(treeFC);
+  renderSummary(treeFC.features);
+  return treeFC.features.length;
 }
+
+// ---------- Registrasi titik: geser / tambah / hapus ----------
+let editMode = false, dragId = null, selectedId = null;
+
+function refreshTrees() {
+  map.getSource('trees').setData(treeFC);
+  renderSummary(treeFC.features);
+  const n = treeFC.features.length;
+  const c = s => treeFC.features.filter(f => f.properties.source === s).length;
+  $('editStat').innerHTML =
+    `${n} titik — <b>${c('auto')}</b> draf model · <b>${c('moved')}</b> digeser · ` +
+    `<b>${c('added')}</b> ditambah · <b>${c('verified')}</b> diperiksa`;
+}
+
+$('editToggle').addEventListener('click', () => {
+  editMode = !editMode;
+  $('editToggle').classList.toggle('on', editMode);
+  $('editHelp').hidden = !editMode;
+  $('map').classList.toggle('editing', editMode);
+  selectedId = null; $('delPoint').hidden = true;
+  if (editMode) refreshTrees();
+});
+
+function featureById(id) {
+  return treeFC.features.find(f => f.properties.id === id);
+}
+
+map.on('mousedown', 'trees', e => {
+  if (!editMode) return;
+  e.preventDefault();                    // cegah peta ikut tergeser
+  dragId = e.features[0].properties.id;
+  selectedId = dragId;
+  $('delPoint').hidden = false;
+});
+
+map.on('mousemove', e => {
+  if (dragId === null) return;
+  const f = featureById(dragId);
+  if (f) { f.geometry.coordinates = [e.lngLat.lng, e.lngLat.lat]; map.getSource('trees').setData(treeFC); }
+});
+
+map.on('mouseup', async () => {
+  if (dragId === null) return;
+  const f = featureById(dragId);
+  dragId = null;
+  if (!f) return;
+  const [lon, lat] = f.geometry.coordinates;
+  f.properties.source = 'moved';
+  f.properties.lon = lon; f.properties.lat = lat;
+  refreshTrees();
+  await fetch(`/api/trees/${f.properties.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lon, lat }),
+  });
+});
+
+// klik pada peta kosong = tambah titik baru
+map.on('click', async e => {
+  if (!editMode) return;
+  const hit = map.queryRenderedFeatures(e.point, { layers: ['trees'] });
+  if (hit.length) { selectedId = hit[0].properties.id; $('delPoint').hidden = false; return; }
+  if (!currentPk) return;
+  const body = { lon: e.lngLat.lng, lat: e.lngLat.lat, category: 'sehat' };
+  const r = await (await fetch(`/api/parcel/${currentPk}/trees?version=${encodeURIComponent($('modelVersion').value)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })).json();
+  treeFC.features.push({
+    type: 'Feature',
+    properties: { id: r.id, no: treeFC.features.length + 1, category: 'sehat',
+                  source: 'added', score: null, lon: body.lon, lat: body.lat },
+    geometry: { type: 'Point', coordinates: [body.lon, body.lat] },
+  });
+  refreshTrees();
+});
+
+$('delPoint').addEventListener('click', async () => {
+  if (selectedId === null) return;
+  await fetch(`/api/trees/${selectedId}`, { method: 'DELETE' });
+  treeFC.features = treeFC.features.filter(f => f.properties.id !== selectedId);
+  selectedId = null; $('delPoint').hidden = true;
+  refreshTrees();
+});
 
 function renderSummary(features) {
   const count = c => features.filter(f => f.properties.category === c).length;

@@ -179,6 +179,10 @@ def variants(img, mask, mpp, lat):
         pts = fn(gray, green, mask, sp, cr)
         if pts.shape[1]:
             res[name] = pts
+    for label, r in (("frond_conv", 1.0), ("frond_conv_r08", 0.8), ("frond_conv_r13", 1.3)):
+        pts = crown.centers_frond(gray, mask, sp, cr * r)[0]
+        if len(pts):
+            res[label] = pts.T
     return res
 
 

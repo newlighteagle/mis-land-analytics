@@ -180,7 +180,7 @@ def points_for(local, land_parcel_pk: str, method: str = METHOD,
                 return {"type": "FeatureCollection", "features": []}
             model_version = row["model_version"]
         cur.execute(
-            """SELECT id, ST_X(geom) AS lon, ST_Y(geom) AS lat, score, category
+            """SELECT id, ST_X(geom) AS lon, ST_Y(geom) AS lat, score, category, source
                FROM analytics.tree
                WHERE land_parcel_pk = %s AND method = %s AND model_version = %s
                ORDER BY id""",
@@ -194,7 +194,7 @@ def points_for(local, land_parcel_pk: str, method: str = METHOD,
             {"type": "Feature",
              "properties": {"id": r["id"], "no": i + 1,
                             "score": round(r["score"], 3) if r["score"] is not None else None,
-                            "category": r["category"],
+                            "category": r["category"], "source": r["source"],
                             "lon": round(r["lon"], 6), "lat": round(r["lat"], 6)},
              "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]}}
             for i, r in enumerate(rows)

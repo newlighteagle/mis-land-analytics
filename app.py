@@ -330,6 +330,70 @@ def versions(pk: str, method: str = tree_grid.METHOD):
     return rows
 
 
+class TreePoint(BaseModel):
+    lon: float | None = None
+    lat: float | None = None
+    category: str | None = None
+
+
+@app.post("/api/parcel/{pk}/trees")
+def add_tree(pk: str, req: TreePoint, method: str = tree_grid.METHOD,
+             version: str = tree_grid.GRID_VERSION):
+    """Tambah titik pohon yang dilewatkan model."""
+    if req.lon is None or req.lat is None:
+        raise HTTPException(422, "lon dan lat wajib diisi")
+    with local_conn() as local, local.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """INSERT INTO analytics.tree
+                 (land_parcel_pk, method, model_version, geom, category, source, edited_at)
+               VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, 'added', now())
+               RETURNING id""",
+            (pk, method, version, req.lon, req.lat, req.category or "sehat"),
+        )
+        row = cur.fetchone()
+        local.commit()
+    return {"id": row["id"], "source": "added"}
+
+
+@app.patch("/api/trees/{tree_id}")
+def update_tree(tree_id: int, req: TreePoint):
+    """Geser posisi titik dan/atau ubah kategorinya.
+
+    Titik yang digeser ditandai `moved`; yang hanya diperiksa tanpa digeser
+    ditandai `verified`. Penandaan ini yang kelak jadi data latih.
+    """
+    sets, params = [], []
+    if req.lon is not None and req.lat is not None:
+        sets.append("geom = ST_SetSRID(ST_MakePoint(%s, %s), 4326)")
+        params += [req.lon, req.lat]
+        sets.append("source = 'moved'")
+    if req.category is not None:
+        sets.append("category = %s")
+        params.append(req.category)
+        if req.lon is None:
+            sets.append("source = CASE WHEN source = 'auto' THEN 'verified' ELSE source END")
+    if not sets:
+        raise HTTPException(422, "tidak ada yang diubah")
+    sets.append("edited_at = now()")
+    params.append(tree_id)
+    with local_conn() as local, local.cursor() as cur:
+        cur.execute(f"UPDATE analytics.tree SET {', '.join(sets)} WHERE id = %s", params)
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Titik tidak ditemukan")
+        local.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/trees/{tree_id}")
+def delete_tree(tree_id: int):
+    with local_conn() as local, local.cursor() as cur:
+        cur.execute("DELETE FROM analytics.tree WHERE id = %s", (tree_id,))
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Titik tidak ditemukan")
+        local.commit()
+    return {"ok": True}
+
+
 @app.get("/")
 def index():
     return FileResponse("static/index.html")

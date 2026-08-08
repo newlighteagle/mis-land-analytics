@@ -79,6 +79,59 @@ def centers_gap_distance(gray, mask, spacing_px, dark_pct=35.0):
     return pk[:, ::-1].astype(float)
 
 
+def frond_convergence(gray, crown_radius_px, ridge_pct=70.0):
+    """Voting sepanjang ARAH PELEPAH — pusat tajuk = titik temu garis pelepah.
+
+    Kenapa bukan FRST: FRST memilih sepanjang arah **gradien**, dan gradien di
+    tepi pelepah tegak lurus terhadap pelepah — jadi suaranya melenceng ke
+    samping, bukan ke pusat tajuk. Terukur setara acak.
+
+    Di sini tiap pixel punggungan (ridge) pelepah memilih di sepanjang sumbu
+    pelepahnya sendiri, ke dua arah, pada jarak 0,3-1,1 x jari-jari tajuk.
+    Karena pelepah memancar dari satu titik, suara menumpuk tepat di pusat.
+    """
+    from scipy.ndimage import uniform_filter
+
+    g = gaussian_filter(gray.astype(np.float32), 1.0)
+    gy, gx = sobel(g, axis=0), sobel(g, axis=1)
+    w = max(3, int(round(0.25 * crown_radius_px)))
+    Jxx = uniform_filter(gx * gx, w)
+    Jyy = uniform_filter(gy * gy, w)
+    Jxy = uniform_filter(gx * gy, w)
+
+    # sumbu minor tensor struktur = arah memanjang pelepah
+    diff = Jxx - Jyy
+    theta = 0.5 * np.arctan2(2 * Jxy, diff)
+    ux, uy = -np.sin(theta), np.cos(theta)
+
+    coh = np.sqrt(diff ** 2 + 4 * Jxy ** 2) / (Jxx + Jyy + 1e-6)
+    strength = coh * np.sqrt(gx ** 2 + gy ** 2)
+    thr = np.percentile(strength, ridge_pct)
+    ys, xs = np.nonzero(strength > thr)
+    if len(ys) < 50:
+        return np.zeros_like(g)
+
+    acc = np.zeros_like(g)
+    h, wd = g.shape
+    vals = strength[ys, xs]
+    for f in np.arange(0.3, 1.15, 0.1):
+        n = f * crown_radius_px
+        for s in (1.0, -1.0):
+            py = np.clip((ys + s * n * uy[ys, xs]).astype(np.int32), 0, h - 1)
+            px = np.clip((xs + s * n * ux[ys, xs]).astype(np.int32), 0, wd - 1)
+            np.add.at(acc, (py, px), vals)
+    return gaussian_filter(acc, sigma=max(1.0, 0.2 * crown_radius_px))
+
+
+def centers_frond(gray, mask, spacing_px, crown_radius_px, min_dist_frac=0.38):
+    """Pusat tajuk dari akumulator titik temu pelepah."""
+    acc = frond_convergence(gray, crown_radius_px)
+    acc = np.where(mask, acc, 0.0)
+    pk = peak_local_max(acc, min_distance=max(2, int(min_dist_frac * spacing_px)),
+                        labels=mask, exclude_border=False)
+    return pk[:, ::-1].astype(float), acc
+
+
 def centers_obia(green, mask, spacing_px, crown_radius_px, weighted=True):
     """OBIA: segmentasi tajuk (watershed) lalu ambil pusat massa tiap objek.
 
