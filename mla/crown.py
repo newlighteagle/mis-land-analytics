@@ -94,7 +94,10 @@ def centers_obia(green, mask, spacing_px, crown_radius_px, weighted=True):
     from skimage.segmentation import watershed
 
     sm = gaussian_filter(green.astype(np.float32), sigma=max(1.0, 0.3 * crown_radius_px))
-    pk = peak_local_max(sm, min_distance=max(2, int(0.45 * spacing_px)),
+    # jarak minimum antar marker sengaja longgar (0,38 x jarak tanam): marker
+    # yang terlewat = tajuk yang hilang selamanya, sedangkan marker berlebih
+    # masih disaring oleh filter luas segmen di bawah.
+    pk = peak_local_max(sm, min_distance=max(2, int(0.38 * spacing_px)),
                         labels=mask, exclude_border=False)
     if len(pk) < 5:
         return np.empty((0, 2))

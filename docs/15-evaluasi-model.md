@@ -84,3 +84,24 @@ Hasil pada persil yang sama, model produksi:
 `analytics.tree` dan `analytics.tree_count` memakai kunci `(persil, metode, **versi model**)`, jadi menjalankan versi baru **tidak menghapus** hasil versi lama (`sql/005_model_version.sql`). Di dashboard, kartu *Ringkasan pohon* punya pemilih **Versi model** beserta metrik tiap versi, sehingga perbaikan bisa dibandingkan langsung di peta.
 
 Endpoint terkait: `GET /api/parcel/{pk}/versions` (daftar versi + metrik) dan `GET /api/parcel/{pk}/trees?version=...`.
+
+## v4: keluaran gabungan — jangan buang tajuk yang sudah terdeteksi
+
+Pemeriksaan visual pada v3 menemukan tajuk yang jelas terlihat tapi tanpa titik. Penyebabnya struktural: **keluaran v3 digerakkan oleh kisi** — jumlah titik = jumlah simpul kisi di dalam poligon, sehingga tajuk nyata yang tidak sejajar simpul mana pun ikut terbuang.
+
+Terukur pada ITM.0001.A: dari 253 kandidat tajuk, **24 tidak pernah ikut keluar** karena tidak ada simpul kisi yang mencocokinya.
+
+`union_points` mengubah keluaran jadi gabungan:
+
+- tiap kandidat tajuk **selalu** jadi titik (posisinya dari citra),
+- simpul kisi tanpa kandidat ditambahkan sebagai **posisi tanam kosong**.
+
+Marker OBIA juga dilonggarkan (jarak minimum 0,45 → 0,38 × jarak tanam), karena marker yang terlewat berarti tajuk hilang selamanya, sedangkan marker berlebih masih tersaring filter luas segmen.
+
+| Versi | n | rasio ke perkiraan | rmse lokal | ≤1 m | ≤2 m | cocok ke tajuk |
+|---|---|---|---|---|---|---|
+| `v2` puncak kehijauan, fase global | 271 | 1,02 | 1,43 | 0,54 | 0,81 | 83% |
+| `v3` OBIA + fase per blok | 266 | 1,00 | 1,53 | 0,64 | 0,84 | 91% |
+| **`v4` + keluaran gabungan** | 285 | 1,07 | 1,46 | 0,61 | **0,88** | **97%** |
+
+v4 menaikkan cakupan (≤2 m dari 0,84 → 0,88; tajuk terpakai 97%) dengan rmse yang praktis sama. Jumlah titik jadi 7% di atas perkiraan luas — konsekuensi wajar dari memilih **tidak membuang** tajuk yang terdeteksi.

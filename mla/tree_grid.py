@@ -26,8 +26,9 @@ from mla.tree_count import resolve_parcel
 from mla.tree_detect import NoImagery, bounds_of, parcel_mask, rings_of
 
 METHOD = "grid_fit"
-# v3: kandidat dari OBIA (sentroid segmen tajuk) + fase kisi per blok
-GRID_VERSION = "lattice_fit/v3"
+# v4: keluaran gabungan - tiap tajuk terdeteksi selalu ikut, simpul kisi
+# tanpa tajuk ditambahkan sebagai posisi kosong (v3 membuang 24 tajuk/persil)
+GRID_VERSION = "lattice_fit/v4"
 CROWN_RADIUS_M = 3.5   # jari-jari tajuk sawit dewasa (m)
 
 MIN_SPACING_M = 6.0    # rentang jarak tanam yang dianggap masuk akal
@@ -169,6 +170,39 @@ def match_to_candidates(pts, cand, radius_px):
     out = pts.copy()
     out[:, hit] = cand[idx[hit]].T
     return out, hit, dist
+
+
+def union_points(nodes, cand, mask, radius_px):
+    """Gabungkan tajuk terdeteksi dengan simpul kisi yang kosong.
+
+    Keluaran versi sebelumnya digerakkan oleh kisi: jumlah titik = jumlah
+    simpul kisi, sehingga tajuk nyata yang tidak sejajar simpul mana pun
+    ikut terbuang (terukur 24 tajuk hilang di satu persil). Di sini
+    keluarannya gabungan:
+
+      - tiap kandidat tajuk SELALU jadi titik (posisi dari citra),
+      - simpul kisi tanpa kandidat ditambahkan sebagai posisi tanam kosong.
+
+    Jadi tidak ada tajuk terdeteksi yang hilang, dan posisi tanam yang
+    kehilangan pohon tetap terlaporkan.
+    """
+    h, w = mask.shape
+    if len(cand) == 0:
+        return nodes, np.zeros(nodes.shape[1], bool), np.full(nodes.shape[1], np.inf)
+
+    cand_in = cand[mask[np.clip(cand[:, 1].astype(int), 0, h - 1),
+                        np.clip(cand[:, 0].astype(int), 0, w - 1)]]
+    if len(cand_in) == 0:
+        return nodes, np.zeros(nodes.shape[1], bool), np.full(nodes.shape[1], np.inf)
+
+    tree = cKDTree(cand_in)
+    dist, _ = tree.query(nodes.T, k=1)
+    empty = nodes[:, dist > radius_px]          # simpul tanpa tajuk
+
+    pts = np.hstack([cand_in.T, empty])
+    hit = np.concatenate([np.ones(len(cand_in), bool), np.zeros(empty.shape[1], bool)])
+    d = np.concatenate([np.zeros(len(cand_in)), np.full(empty.shape[1], np.inf)])
+    return pts, hit, d
 
 
 def _lattice_points(a1, a2, origin, shape):
@@ -348,8 +382,8 @@ def fit(prod, local, ident: str) -> dict:
         cand, _ = crown_candidates(green, mask, spacing_px,
                                    sigma_px=max(1.0, CROWN_SIGMA_M / mpp))
 
-    pts, score = fit_phase_local(mask, lat, cand, match_px)
-    pts, hit, dist = match_to_candidates(pts, cand, match_px)
+    nodes, score = fit_phase_local(mask, lat, cand, match_px)
+    pts, hit, dist = union_points(nodes, cand, mask, match_px)
 
     vigor, categories = classify(pts, hit, green, mask)
     match_rate = float(hit.mean()) if len(hit) else 0.0
