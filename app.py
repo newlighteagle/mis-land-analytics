@@ -6,11 +6,12 @@ Jalankan: .venv/bin/uvicorn app:app --reload --port 8008
 import json
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
+from mla import export as export_mod
 from mla import tree_count, tree_detect, tree_grid, vigor
 from mla.db import local_conn, prod_conn
 
@@ -431,6 +432,47 @@ def delete_tree(tree_id: int):
             raise HTTPException(404, "Titik tidak ditemukan")
         local.commit()
     return {"ok": True}
+
+
+EXPORT_FORMATS = {
+    "csv":     ("text/csv", "csv"),
+    "geojson": ("application/geo+json", "geojson"),
+    "shp":     ("application/zip", "zip"),
+}
+
+
+@app.get("/api/parcel/{pk}/export.{fmt}")
+def export_trees(pk: str, fmt: str):
+    """Unduh titik pohon satu lahan: csv | geojson | shp (shapefile zip)."""
+    if fmt not in EXPORT_FORMATS:
+        raise HTTPException(404, f"Format tidak dikenal: {fmt}")
+    with prod_conn() as prod, prod.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """SELECT p.parcel_id, f.name AS farmer_name
+               FROM tbl_land_parcel p JOIN tbl_farmer f ON f.id = p.farmer_id
+               WHERE p.id = %s""",
+            (pk,),
+        )
+        meta = cur.fetchone()
+    if not meta:
+        raise HTTPException(404, "Persil tidak ditemukan")
+
+    with local_conn() as local:
+        rows, _ = export_mod.collect(local, pk, meta["parcel_id"], meta["farmer_name"])
+    if not rows:
+        raise HTTPException(422, "Belum ada titik untuk lahan ini")
+
+    mime, ext = EXPORT_FORMATS[fmt]
+    if fmt == "csv":
+        body = export_mod.to_csv(rows)
+    elif fmt == "geojson":
+        body = export_mod.to_geojson(rows, meta["parcel_id"])
+    else:
+        body = export_mod.to_shapefile_zip(rows, meta["parcel_id"])
+
+    name = f"pohon_{meta['parcel_id'].replace('.', '_')}.{ext}"
+    return Response(body, media_type=mime,
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.get("/")

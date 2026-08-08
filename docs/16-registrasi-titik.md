@@ -60,6 +60,22 @@ Hasil dicatat di kolom `score` (vigor 0–1) dan `category` tiap titik, serta di
 
 Kategori ini tetap **relatif antar pohon di lahan yang sama dan bukan diagnosis penyakit** — untuk Ganoderma dan sejenisnya perlu modul tersendiri plus verifikasi lapangan.
 
+## Ekspor
+
+Tiga tombol di kartu *Ringkasan pohon* mengunduh titik lahan terpilih:
+
+| Format | Isi |
+|---|---|
+| **CSV** | Tabel datar, ber-BOM UTF-8 supaya rapi dibuka di Excel |
+| **Shapefile** | `.shp/.shx/.dbf/.prj/.cpg` dibungkus zip, plus README penjelasan kolom |
+| **GeoJSON** | FeatureCollection CRS84, siap dibuka di QGIS/web |
+
+Semua format memuat kolom sama: `no`, `tree_id`, `parcel_id`, `farmer`, `lon`, `lat`, `category`, `vigor`, `source`, `model_ver`.
+
+Kolom `source` dan `model_ver` sengaja ikut diekspor. Penerima data harus bisa membedakan titik hasil registrasi manusia dari draf model — tanpa itu, angka draf gampang dipakai seolah sudah terverifikasi. Koordinat dalam WGS84 (EPSG:4326).
+
+Endpoint: `GET /api/parcel/{pk}/export.{csv|geojson|shp}`.
+
 ## Rencana lanjutan
 
 - **Ekspor data latih** dari titik `moved`/`added`/`verified` untuk melatih detektor CNN.

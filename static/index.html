@@ -70,6 +70,9 @@
   #catBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
   #runCategorize { width: 100%; }
   button.ghost { width: 100%; margin-top: 6px; background: #eee; color: #444; font-size: 13px; }
+  #exportBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+  .exp { display: flex; gap: 5px; margin-top: 5px; }
+  .exp button { flex: 1; background: #40916c; font-size: 12px; padding: 7px 0; }
   #catResult:not(:empty) { margin-top: 7px; }
   #editBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
   #editToggle { width: 100%; background: #eee; color: #333; }
@@ -179,6 +182,14 @@
           <button id="runCategorize">🔬 Analisa kategori pohon</button>
           <button id="resetCat" class="ghost">↺ Reset hasil analisa</button>
           <div id="catResult" class="muted"></div>
+        </div>
+        <div id="exportBox">
+          <div class="muted">Ekspor titik</div>
+          <div class="exp">
+            <button data-fmt="csv">CSV</button>
+            <button data-fmt="shp">Shapefile</button>
+            <button data-fmt="geojson">GeoJSON</button>
+          </div>
         </div>
         <div id="editBox">
           <button id="editToggle">✏️ Mode registrasi titik</button>
@@ -637,6 +648,15 @@ $('runCategorize').addEventListener('click', async () => {
     await loadTrees();
     loadHistory();
   } finally { $('runCategorize').disabled = false; }
+});
+
+// ---------- ekspor ----------
+document.querySelectorAll('.exp button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (!currentPk) return;
+    // biarkan browser yang mengunduh; nama file diatur server lewat header
+    window.location.href = `/api/parcel/${currentPk}/export.${btn.dataset.fmt}`;
+  });
 });
 
 $('resetCat').addEventListener('click', async () => {

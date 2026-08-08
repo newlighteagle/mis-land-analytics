@@ -8,3 +8,4 @@ scipy>=1.14
 scikit-image>=0.24
 pillow>=10.0
 requests>=2.32
+pyshp>=3.1          # ekspor shapefile (mla/export.py)
