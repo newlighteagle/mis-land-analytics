@@ -2,7 +2,7 @@
 
 Modul 1 tahap 2: menghitung pohon dari citra, bukan dari asumsi kerapatan seperti [baseline](09-modul-tree-count.md).
 
-> **Status: belum bisa dipakai untuk produksi.** Mesin deteksinya sudah jalan, tapi citra yang tersedia (Esri World Imagery, maks. 0,6 m/px) **tidak cukup resolusinya** untuk area ini. Lihat [Hasil evaluasi](#hasil-evaluasi). Kode disimpan karena akan langsung berguna begitu ada citra yang lebih tajam.
+> **Status: belum bisa dipakai untuk produksi.** Deteksi per pohon konsisten undercount 3–8×. Penyebabnya bukan sekadar resolusi: pada sebagian persil mahkota **jelas terlihat terpisah** di citra 0,6 m/px, tapi detektor puncak lokal tetap gagal mengisolasinya. Lihat [Hasil evaluasi](#hasil-evaluasi) dan [Yang justru berhasil](#yang-justru-berhasil-jarak-tanam-spektral).
 
 ## Metode `local_maxima/v1`
 
@@ -33,9 +33,24 @@ Dua hal yang menyimpulkan metode ini belum valid di citra tersebut:
 1. **Undercount 3–8×** terhadap baseline.
 2. **Kerapatan hasil hampir konstan (~32 SPH) lintas umur tanam.** Detektor yang benar-benar menemukan pohon akan memberi angka berbeda antara tegakan muda (mahkota terpisah) dan tua (kanopi rapat). Angka yang seragam menandakan yang tertangkap adalah tekstur kanopi pada skala tertentu, bukan pohon.
 
-Pemeriksaan visual mendukung: pada 0,6 m/px mahkota sawit hanya ~12 px dan pada kanopi tertutup batasnya tidak terlihat.
+**Koreksi penting (uji lanjutan pada ITM.0106.A.14.06.06.2017):** pemeriksaan visual persil ini menunjukkan mahkota sawit **jelas terpisah dalam pola grid teratur** pada 0,6 m/px — jadi anggapan awal "citra terlalu kasar di semua tempat" terlalu luas. Meski begitu deteksi hanya menemukan 48 pohon (vs baseline 265). Uji 32 kombinasi respons (kehijauan `2G−R−B`, kegelapan `−(R+G+B)`, ExG ternormalisasi, `G−B`) × sigma × jarak minimum × ambang menghasilkan maksimum **172 pohon** — masih jauh di bawah 265. Kesimpulan yang lebih tepat: **detektor puncak lokal sederhana yang tidak memadai**, bukan semata-mata citranya.
 
 **Hasil uji ini sengaja dihapus dari database** supaya tidak ada angka menyesatkan di `analytics.tree_count` / `analytics.tree`.
+
+## Yang justru berhasil: jarak tanam spektral
+
+Alih-alih mengisolasi tiap mahkota, **periodisitas** tanaman terbaca sangat kuat dari citra yang sama lewat spektrum daya 2D (FFT pada patch di dalam persil, setelah gradien besar dibuang dan diberi window Hanning).
+
+Pada ITM.0106.A puncak spektral dominan = **8,87 m** (14,9 px), dengan puncak pendukung di 8,47 m dan 9,31 m. Turunannya:
+
+| Pola tanam | SPH tersirat |
+|---|---|
+| Segitiga | 147 pohon/ha |
+| Persegi | 127 pohon/ha |
+
+Baseline memakai 136 pohon/ha (asumsi 9,21 m) — **berada tepat di antara keduanya**, jadi asumsi baseline tervalidasi untuk persil ini lewat pengukuran langsung dari citra.
+
+Ini jalur yang jauh lebih menjanjikan daripada hitung per pohon pada resolusi ini: mengukur jarak tanam nyata per persil untuk **mengganti asumsi SPH global 136 dengan SPH terukur per persil**, tanpa perlu mengisolasi tiap pohon. Belum diimplementasikan sebagai modul.
 
 ## Yang dibutuhkan supaya modul ini valid
 
