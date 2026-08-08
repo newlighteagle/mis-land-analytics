@@ -486,8 +486,7 @@ async function selectParcel(pk) {
   $('gridResult').innerHTML = '';
   $('summaryCard').hidden = true;
   map.getSource('parcel').setData(f);
-  await loadVersions();
-  loadTrees();
+  await loadTrees();
   if (!editMode) {                    // peta diam saat sedang meregistrasi
     const [minX, minY, maxX, maxY] = f.geometry.bbox ?? bboxOf(f.geometry);
     map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, maxZoom: 17 });
@@ -643,7 +642,6 @@ $('runGrid').addEventListener('click', async () => {
       ${p.sph_from_lattice} SPH terukur · citra z${p.zoom}</div>${warn}
       <div class="muted" style="margin-top:6px">Ini <b>draf</b> — periksa dan betulkan lewat
       mode registrasi titik.</div>`;
-    await loadVersions();
     await loadTrees();
     loadHistory();
   } finally { $('runGrid').disabled = false; }
