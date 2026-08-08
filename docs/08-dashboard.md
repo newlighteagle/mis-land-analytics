@@ -26,7 +26,8 @@ Setelah menjalankan analisa, daftar "sudah dianalisa" otomatis dimuat ulang sehi
 1. **Cari / pilih persil** — sesuai mode di atas.
 2. **Klik hasil** — panel menampilkan atribut (petani, kelompok, luas, komoditas, status lahan, blok, PSR); peta menggambar poligon persil (kuning, semi-transparan) dan zoom ke bounding box-nya (maks. zoom 17).
 3. **Analisa** — kartu *Tree count*: atur SPH (input angka, 50–200, default 136) lalu klik **Hitung (baseline)**. Hasil tampil sebagai `± N pohon` beserta luas, SPH, versi metode, dan confidence.
-4. **Riwayat** — kartu *Riwayat hasil* menampilkan semua hasil tersimpan untuk persil itu (per metode; menjalankan ulang metode yang sama menimpa hasil lamanya — lihat [05-database-mis-analytics.md](05-database-mis-analytics.md)).
+4. **Peta pohon** — kartu *Peta pohon (kisi tanam)*: klik **Petakan pohon dari citra**. Sistem mengambil citra persil, mengukur kisi tanam, lalu menggambar **titik pohon merah** di peta. Kartu menampilkan jumlah titik, jarak tanam, arah baris, dan SPH terukur. Titik ini adalah **posisi model** dari pola tanam terukur, bukan deteksi tiap pohon — lihat [13-modul-tree-grid.md](13-modul-tree-grid.md).
+5. **Riwayat** — kartu *Riwayat hasil* menampilkan semua hasil tersimpan untuk persil itu (per metode; menjalankan ulang metode yang sama menimpa hasil lamanya — lihat [05-database-mis-analytics.md](05-database-mis-analytics.md)).
 
 ## Detail implementasi
 
@@ -38,5 +39,5 @@ Setelah menjalankan analisa, daftar "sudah dianalisa" otomatis dimuat ulang sehi
 ## Keterbatasan saat ini
 
 - Hanya satu persil tampil di peta pada satu waktu.
-- Belum ada layer titik pohon (menunggu modul deteksi per pohon).
+- Titik pohon adalah posisi model dari kisi tanam, jadi tidak menunjukkan pohon yang mati/hilang.
 - Nilai SPH di UI dibatasi 50–200; API sendiri tidak membatasi.

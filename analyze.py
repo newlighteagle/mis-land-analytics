@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 
-from mla import tree_count, tree_detect
+from mla import tree_count, tree_detect, tree_grid
 from mla.db import local_conn, prod_conn
 
 
@@ -30,11 +30,17 @@ def main():
     td.add_argument("--sph", type=float, default=None,
                     help="SPH asumsi untuk menurunkan jarak tanam minimum antar puncak")
 
+    tg = sub.add_parser("tree-grid",
+                        help="Petakan posisi pohon via fitting kisi tanam dari citra")
+    tg.add_argument("--parcel-id", required=True, help="ID lahan (parcel_id) atau primary key")
+
     args = ap.parse_args()
     prod, local = prod_conn(), local_conn()
     try:
         if args.module == "tree-count":
             row = tree_count.baseline(prod, local, args.parcel_id, sph=args.sph)
+        elif args.module == "tree-grid":
+            row = tree_grid.fit(prod, local, args.parcel_id)
         else:
             row = tree_detect.detect(prod, local, args.parcel_id, sph=args.sph)
         print(json.dumps(row, indent=2, ensure_ascii=False, default=str))
@@ -44,6 +50,8 @@ def main():
         sys.exit("ID lahan ganda, pakai primary key salah satu dari: " + ", ".join(e.matches))
     except tree_detect.NoImagery as e:
         sys.exit(f"Citra tidak tersedia: {e}")
+    except tree_grid.NoLattice as e:
+        sys.exit(f"Pola tanam tidak terbaca: {e}")
     finally:
         prod.close()
         local.close()

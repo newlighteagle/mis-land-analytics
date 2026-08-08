@@ -48,6 +48,14 @@ JSON baris hasil (setelah di-upsert ke `analytics.tree_count`), contoh:
 }
 ```
 
+## Subcommand `tree-grid`
+
+```bash
+.venv/bin/python analyze.py tree-grid --parcel-id ITM.0106.A.14.06.06.2017
+```
+
+Ukur kisi tanam dari citra, simpan posisi pohon ke `analytics.tree`, dan upsert agregat dengan `method='grid_fit'`. Ini metode yang dipakai dashboard untuk layer titik pohon — lihat [13-modul-tree-grid.md](13-modul-tree-grid.md). Keluar dengan pesan `Pola tanam tidak terbaca: ...` bila periodisitas tanam tidak terdeteksi.
+
 ## Subcommand `tree-detect` (eksperimental)
 
 ```bash

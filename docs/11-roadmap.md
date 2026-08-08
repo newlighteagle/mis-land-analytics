@@ -6,7 +6,11 @@ Modul dikerjakan bertahap; masing-masing modul baru = satu file di `mla/` + tabe
 
 Mesin deteksi sudah dibangun (`mla/imagery.py` + `mla/tree_detect.py`, tabel `analytics.tree`), tapi **evaluasi menunjukkan citra Esri (maks. 0,6 m/px di seluruh area) tidak cukup** — detail dan angkanya di [12-modul-tree-detect.md](12-modul-tree-detect.md).
 
-Untuk melanjutkan, butuh salah satu: citra komersial ≤0,5 m/px (Maxar/Airbus) pada sampel persil, atau foto drone. Sampai itu ada, baseline kerapatan tetap angka rujukan jumlah pohon.
+Untuk deteksi individual sejati, butuh citra komersial ≤0,5 m/px (Maxar/Airbus) atau foto drone.
+
+**Namun jalur pengganti sudah jadi dan bekerja:** [fitting kisi tanam](13-modul-tree-grid.md) (`mla/tree_grid.py`) menghasilkan posisi pohon dan SPH terukur per persil dari citra yang sama — tervalidasi 16/16 persil dengan SPH median 135,7. Ini yang dipakai dashboard untuk layer titik pohon.
+
+Lanjutan yang masuk akal untuk modul ini: pakai SPH terukur menggantikan asumsi 136 pada baseline seluruh persil (batch), dan bandingkan titik kisi dengan respons citra untuk menandai posisi yang kemungkinan pohonnya hilang.
 
 ## 2. NDVI monitoring (Sentinel-2) *(berikutnya)*
 

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
-from mla import tree_count
+from mla import tree_count, tree_detect, tree_grid
 from mla.db import local_conn, prod_conn
 
 app = FastAPI(title="mis-land-analytics")
@@ -136,6 +136,27 @@ def analyze_tree_count(pk: str, req: TreeCountReq):
             return tree_count.baseline(prod, local, pk, sph=req.sph)
         except tree_count.ParcelNotFound:
             raise HTTPException(404, "Persil tidak ditemukan")
+
+
+@app.post("/api/parcel/{pk}/analyze/tree-grid")
+def analyze_tree_grid(pk: str):
+    """Petakan posisi pohon dengan fitting kisi tanam dari citra."""
+    with prod_conn() as prod, local_conn() as local:
+        try:
+            return tree_grid.fit(prod, local, pk)
+        except tree_count.ParcelNotFound:
+            raise HTTPException(404, "Persil tidak ditemukan")
+        except tree_detect.NoImagery as e:
+            raise HTTPException(422, f"Citra tidak tersedia: {e}")
+        except tree_grid.NoLattice as e:
+            raise HTTPException(422, f"Pola tanam tidak terbaca: {e}")
+
+
+@app.get("/api/parcel/{pk}/trees")
+def trees(pk: str, method: str = tree_grid.METHOD):
+    """Titik pohon sebagai GeoJSON FeatureCollection."""
+    with local_conn() as local:
+        return tree_detect.points_for(local, pk, method)
 
 
 @app.get("/")

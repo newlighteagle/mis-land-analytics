@@ -59,6 +59,11 @@
       <div id="tcResult"></div>
     </div>
     <div class="card">
+      <h2>Peta pohon (kisi tanam)</h2>
+      <button id="runGrid">Petakan pohon dari citra</button>
+      <div id="gridResult"></div>
+    </div>
+    <div class="card">
       <h2>Riwayat hasil</h2>
       <div id="history" class="muted">Belum ada.</div>
     </div>
@@ -89,6 +94,15 @@ map.on('load', () => {
     paint: { 'fill-color': '#ffd60a', 'fill-opacity': 0.15 } });
   map.addLayer({ id: 'parcel-line', type: 'line', source: 'parcel',
     paint: { 'line-color': '#ffd60a', 'line-width': 2.5 } });
+  map.addSource('trees', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'trees', type: 'circle', source: 'trees',
+    paint: {
+      'circle-color': '#ff4d4d',
+      'circle-opacity': 0.9,
+      // titik ikut membesar saat zoom in supaya tetap terbaca di skala persil
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 17, 3, 20, 6],
+      'circle-stroke-color': '#fff', 'circle-stroke-width': 0.5,
+    } });
 });
 
 const $ = id => document.getElementById(id);
@@ -159,7 +173,9 @@ async function selectParcel(pk) {
     ['Blok', p.blok ?? '-'], ['PSR', p.is_psr ? 'Ya' : 'Tidak'],
   ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   $('tcResult').innerHTML = '';
+  $('gridResult').innerHTML = '';
   map.getSource('parcel').setData(f);
+  loadTrees();
   const [minX, minY, maxX, maxY] = f.geometry.bbox ?? bboxOf(f.geometry);
   map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, maxZoom: 17 });
   loadHistory();
@@ -179,6 +195,34 @@ async function loadHistory() {
         <td>${r.sph_used ?? '-'}</td><td>${r.computed_at.slice(0, 16).replace('T', ' ')}</td></tr>`).join('') + '</table>'
     : 'Belum ada.';
 }
+
+async function loadTrees() {
+  const fc = await (await fetch(`/api/parcel/${currentPk}/trees`)).json();
+  map.getSource('trees').setData(fc);
+  return fc.features.length;
+}
+
+$('runGrid').addEventListener('click', async () => {
+  if (!currentPk) return;
+  $('runGrid').disabled = true;
+  $('gridResult').innerHTML = '<div class="muted">Mengambil citra & mengukur pola tanam…</div>';
+  try {
+    const res = await fetch(`/api/parcel/${currentPk}/analyze/tree-grid`, { method: 'POST' });
+    const r = await res.json();
+    if (!res.ok) {
+      $('gridResult').innerHTML = `<div class="muted">⚠️ ${r.detail ?? 'Gagal'}</div>`;
+      return;
+    }
+    const p = r.params;
+    $('gridResult').innerHTML = `<div class="big">${r.tree_count.toLocaleString('id')} titik pohon</div>
+      <div class="muted">jarak tanam ${p.spacing_a1_m} × ${p.spacing_a2_m} m · arah baris ${p.row_angle_deg}° ·
+      ${p.sph_from_lattice} SPH terukur · citra z${p.zoom} (${p.meters_per_pixel} m/px)</div>
+      <div class="muted" style="margin-top:6px">Posisi <b>model</b> dari kisi tanam terukur, bukan deteksi tiap pohon.</div>`;
+    await loadTrees();
+    loadHistory();
+    loadAnalyzed();
+  } finally { $('runGrid').disabled = false; }
+});
 
 $('run').addEventListener('click', async () => {
   if (!currentPk) return;

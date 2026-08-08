@@ -37,14 +37,14 @@ Titik per pohon hasil deteksi citra — dibutuhkan modul kesehatan/HPT yang beke
 |---|---|---|
 | `id` | `bigserial` PK | |
 | `land_parcel_pk` | `text` | = `tbl_land_parcel.id` |
-| `method` | `text` | Selaras dengan `method` di `tree_count` (mis. `detection_esri`) |
+| `method` | `text` | Selaras dengan `method` di `tree_count`: `grid_fit` (dipakai sekarang), `detection_esri` (eksperimen gagal) |
 | `geom` | `geometry(Point, 4326)` | Posisi pohon, index GiST |
 | `score` | `real` | Kekuatan puncak deteksi, dinormalisasi 0–1 dalam persil |
 | `detected_at` | `timestamptz` | |
 
 Pola tulisnya **delete + insert**: satu run deteksi mengganti seluruh titik persil untuk method yang sama, konsisten dengan upsert satu-baris di `tree_count`.
 
-Saat ini tabel kosong — hasil uji deteksi dihapus karena citranya belum memadai (lihat [12-modul-tree-detect.md](12-modul-tree-detect.md)).
+Isi tabel saat ini berasal dari fitting kisi tanam (`grid_fit`); hasil eksperimen `detection_esri` sudah dihapus karena tidak valid (lihat [12](12-modul-tree-detect.md) dan [13](13-modul-tree-grid.md)).
 
 ## Konvensi untuk tabel modul berikutnya
 
