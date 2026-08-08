@@ -94,6 +94,15 @@ map.on('load', () => {
     paint: { 'fill-color': '#ffd60a', 'fill-opacity': 0.15 } });
   map.addLayer({ id: 'parcel-line', type: 'line', source: 'parcel',
     paint: { 'line-color': '#ffd60a', 'line-width': 2.5 } });
+  // ikhtisar semua persil yang sudah dianalisa (mode "Sudah dianalisa")
+  map.addSource('done', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'done-fill', type: 'fill', source: 'done',
+    paint: { 'fill-color': '#4cc9f0', 'fill-opacity': 0.25 } });
+  map.addLayer({ id: 'done-line', type: 'line', source: 'done',
+    paint: { 'line-color': '#4cc9f0', 'line-width': 1.5 } });
+  map.on('click', 'done-fill', e => selectParcel(e.features[0].properties.id));
+  map.on('mouseenter', 'done-fill', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'done-fill', () => map.getCanvas().style.cursor = '');
   map.addSource('trees', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'trees', type: 'circle', source: 'trees',
     paint: {
@@ -126,17 +135,32 @@ $('q').addEventListener('input', () => {
 async function loadAnalyzed() {
   analyzed = await (await fetch('/api/analyzed')).json();
   renderAnalyzed($('qDone').value.trim().toLowerCase());
+  if (!$('paneDone').hidden) showDoneOverview(true);
 }
 
 function renderAnalyzed(needle = '') {
   const rows = needle
     ? analyzed.filter(r => (r.parcel_id + ' ' + (r.farmer_name ?? '')).toLowerCase().includes(needle))
     : analyzed;
-  $('hitsDone').innerHTML = rows.length ? rows.map(r =>
-    `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
-     <span class="sub">${r.farmer_name ?? '-'} · ${r.area != null ? r.area.toFixed(2) + ' ha · ' : ''}${r.n_methods} metode ·
-     ${r.last_computed.slice(0, 10)}</span></li>`).join('')
+  $('hitsDone').innerHTML = rows.length ? rows.map(r => {
+    const hasil = r.trees_grid != null
+      ? `🌴 ${r.trees_grid} pohon · ${r.sph_grid} SPH terukur`
+      : `🌴 ${r.trees_baseline} pohon (baseline)`;
+    return `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
+     <span class="sub">${r.farmer_name ?? '-'} · ${r.area != null ? r.area.toFixed(2) + ' ha' : ''}<br>${hasil}</span></li>`;
+  }).join('')
     : `<li class="empty">${analyzed.length ? 'Tidak ada yang cocok.' : 'Belum ada persil yang dianalisa.'}</li>`;
+}
+
+async function showDoneOverview(on) {
+  if (!on) { map.getSource('done').setData({ type: 'FeatureCollection', features: [] }); return; }
+  const fc = await (await fetch('/api/analyzed/geojson')).json();
+  map.getSource('done').setData(fc);
+  if (!fc.features.length || currentPk) return;
+  const pts = fc.features.flatMap(f => f.geometry.coordinates.flat(f.geometry.type === 'MultiPolygon' ? 2 : 1));
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]],
+                { padding: 50, maxZoom: 14 });
 }
 
 $('qDone').addEventListener('input', () => renderAnalyzed($('qDone').value.trim().toLowerCase()));
@@ -151,6 +175,7 @@ for (const [btn, other, pane, otherPane] of [
     $(pane).hidden = false;
     $(otherPane).hidden = true;
     if (btn === 'modeDone') loadAnalyzed();
+    showDoneOverview(btn === 'modeDone');
   });
 }
 

@@ -68,7 +68,11 @@ def analyzed():
     with local_conn() as local, local.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """SELECT land_parcel_pk, parcel_id, count(*) AS n_methods,
-                      max(computed_at) AS last_computed
+                      max(computed_at) AS last_computed,
+                      -- angka yang ditampilkan diambil dari metode terbaik yang ada
+                      max(tree_count) FILTER (WHERE method = 'grid_fit')     AS trees_grid,
+                      max(sph_used)   FILTER (WHERE method = 'grid_fit')     AS sph_grid,
+                      max(tree_count) FILTER (WHERE method = 'baseline_density') AS trees_baseline
                FROM analytics.tree_count GROUP BY land_parcel_pk, parcel_id"""
         )
         rows = cur.fetchall()
@@ -93,10 +97,34 @@ def analyzed():
             "farmer_name": m.get("farmer_name"),
             "area": float(m["area"]) if m.get("area") is not None else None,
             "n_methods": r["n_methods"],
+            "trees_grid": r["trees_grid"],
+            "sph_grid": float(r["sph_grid"]) if r["sph_grid"] is not None else None,
+            "trees_baseline": r["trees_baseline"],
             "last_computed": r["last_computed"].isoformat(),
         })
     out.sort(key=lambda r: r["last_computed"], reverse=True)
     return out
+
+
+@app.get("/api/analyzed/geojson")
+def analyzed_geojson():
+    """Poligon semua persil yang sudah dianalisa — layer ikhtisar di peta."""
+    summary = {r["id"]: r for r in analyzed()}
+    if not summary:
+        return {"type": "FeatureCollection", "features": []}
+    with prod_conn() as prod, prod.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            "SELECT id, geometry FROM tbl_land_parcel WHERE id = ANY(%s)",
+            (list(summary),),
+        )
+        rows = cur.fetchall()
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "geometry": r["geometry"], "properties": summary[r["id"]]}
+            for r in rows if r["geometry"]
+        ],
+    }
 
 
 @app.get("/api/parcel/{pk}")
