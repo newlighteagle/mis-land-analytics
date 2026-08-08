@@ -69,6 +69,7 @@
   #versionPick { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
   #catBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
   #runCategorize { width: 100%; }
+  button.ghost { width: 100%; margin-top: 6px; background: #eee; color: #444; font-size: 13px; }
   #catResult:not(:empty) { margin-top: 7px; }
   #editBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
   #editToggle { width: 100%; background: #eee; color: #333; }
@@ -176,6 +177,7 @@
         <div id="summary"></div>
         <div id="catBox">
           <button id="runCategorize">🔬 Analisa kategori pohon</button>
+          <button id="resetCat" class="ghost">↺ Reset hasil analisa</button>
           <div id="catResult" class="muted"></div>
         </div>
         <div id="editBox">
@@ -635,6 +637,18 @@ $('runCategorize').addEventListener('click', async () => {
     await loadTrees();
     loadHistory();
   } finally { $('runCategorize').disabled = false; }
+});
+
+$('resetCat').addEventListener('click', async () => {
+  if (!currentPk) return;
+  if (!confirm('Kosongkan score, kategori, dan penanda versi model untuk semua titik di lahan ini?\n\nPosisi titik tidak diubah.')) return;
+  $('resetCat').disabled = true;
+  try {
+    const r = await (await fetch(`/api/parcel/${currentPk}/reset`, { method: 'POST' })).json();
+    $('catResult').innerHTML = `${r.reset} titik dikosongkan — posisi tetap, kategori kembali "belum dikategorikan".`;
+    await loadTrees();
+    loadHistory();
+  } finally { $('resetCat').disabled = false; }
 });
 
 $('delPoint').addEventListener('click', async () => {

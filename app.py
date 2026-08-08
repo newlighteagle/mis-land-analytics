@@ -330,6 +330,31 @@ def versions(pk: str, method: str = tree_grid.METHOD):
     return rows
 
 
+@app.post("/api/parcel/{pk}/reset")
+def reset_points(pk: str, method: str = tree_grid.METHOD):
+    """Kosongkan hasil analisa pada titik: score, kategori, dan penanda versi.
+
+    Posisi titik TIDAK diubah — yang dibuang hanya penilaian model, sehingga
+    hasil registrasi manusia tetap utuh dan bisa dinilai ulang dari nol.
+    """
+    with local_conn() as local, local.cursor() as cur:
+        cur.execute(
+            """UPDATE analytics.tree
+               SET score = NULL, category = 'unknown', model_version = NULL
+               WHERE land_parcel_pk = %s AND method = %s""",
+            (pk, method),
+        )
+        n = cur.rowcount
+        cur.execute(
+            """UPDATE analytics.tree_count
+               SET params = params - 'kategori' - 'vigor_version'
+               WHERE land_parcel_pk = %s AND method = %s""",
+            (pk, method),
+        )
+        local.commit()
+    return {"reset": n}
+
+
 @app.post("/api/parcel/{pk}/categorize")
 def categorize(pk: str):
     """Beri label sehat/lemah/kosong pada titik yang sudah diregistrasi."""

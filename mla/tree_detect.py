@@ -169,22 +169,27 @@ def points_for(local, land_parcel_pk: str, method: str = METHOD,
     """
     with local.cursor(row_factory=dict_row) as cur:
         if model_version is None:
+            # NULLS FIRST: titik yang sudah direset (tanpa penanda versi) adalah
+            # hasil registrasi manusia, jadi ia yang paling berlaku.
             cur.execute(
                 """SELECT model_version FROM analytics.tree
                    WHERE land_parcel_pk = %s AND method = %s
-                   ORDER BY model_version DESC LIMIT 1""",
+                   ORDER BY model_version DESC NULLS FIRST LIMIT 1""",
                 (land_parcel_pk, method),
             )
             row = cur.fetchone()
             if not row:
                 return {"type": "FeatureCollection", "features": []}
             model_version = row["model_version"]
+        clause = ("model_version IS NULL" if model_version is None
+                  else "model_version = %s")
+        params = [land_parcel_pk, method] + ([] if model_version is None else [model_version])
         cur.execute(
-            """SELECT id, ST_X(geom) AS lon, ST_Y(geom) AS lat, score, category, source
-               FROM analytics.tree
-               WHERE land_parcel_pk = %s AND method = %s AND model_version = %s
-               ORDER BY id""",
-            (land_parcel_pk, method, model_version),
+            f"""SELECT id, ST_X(geom) AS lon, ST_Y(geom) AS lat, score, category, source
+                FROM analytics.tree
+                WHERE land_parcel_pk = %s AND method = %s AND {clause}
+                ORDER BY id""",
+            params,
         )
         rows = cur.fetchall()
     return {
