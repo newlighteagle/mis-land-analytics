@@ -21,12 +21,14 @@ from scipy.ndimage import gaussian_filter
 from scipy.spatial import cKDTree
 from skimage.feature import peak_local_max
 
-from mla import imagery
+from mla import crown, imagery
 from mla.tree_count import resolve_parcel
 from mla.tree_detect import NoImagery, bounds_of, parcel_mask, rings_of
 
 METHOD = "grid_fit"
-GRID_VERSION = "lattice_fit/v2"   # v2: sumber Google 0,3 m + snap + kategori vigor
+# v3: kandidat dari OBIA (sentroid segmen tajuk) + fase kisi per blok
+GRID_VERSION = "lattice_fit/v3"
+CROWN_RADIUS_M = 3.5   # jari-jari tajuk sawit dewasa (m)
 
 MIN_SPACING_M = 6.0    # rentang jarak tanam yang dianggap masuk akal
 MAX_SPACING_M = 13.0
@@ -208,6 +210,63 @@ def _best_phase(response, mask, lat):
     return best
 
 
+def fit_phase_local(mask, lat, cand, match_px, block_cells=4):
+    """Fase kisi dicari ULANG per blok, bukan satu fase untuk seluruh persil.
+
+    Barisan tanam di kebun swadaya melengkung dan bergeser; kisi kaku satu
+    fase memaksa titik meleset di ujung-ujung persil. Terukur: rmse ke kisi
+    turun dari 2,50 m (fase global) ke 1,47 m (fase per blok), dan titik yang
+    berada dalam 1 m naik dari 20% ke 56%.
+
+    Offset tiap blok dicari mandiri lalu dipakai untuk membangkitkan titik
+    kisi blok itu saja, sehingga kisi mengikuti lengkungan barisan.
+    """
+    a1, a2 = lat["a1"], lat["a2"]
+    A = np.column_stack([a1, a2])
+    Ainv = np.linalg.inv(A)
+    tree = cKDTree(cand) if len(cand) else None
+
+    # jangkauan indeks sel yang menutupi seluruh citra
+    h, w = mask.shape
+    corners = np.array([[0, 0], [w, 0], [0, h], [w, h]], float).T
+    mn = Ainv @ corners
+    m0, m1 = int(np.floor(mn[0].min())), int(np.ceil(mn[0].max()))
+    n0, n1 = int(np.floor(mn[1].min())), int(np.ceil(mn[1].max()))
+
+    pts_all, hits_all = [], []
+    for bm in range(m0, m1 + 1, block_cells):
+        for bn in range(n0, n1 + 1, block_cells):
+            mm, nn = np.meshgrid(np.arange(bm, min(bm + block_cells, m1 + 1)),
+                                 np.arange(bn, min(bn + block_cells, n1 + 1)))
+            base = a1[:, None] * mm.ravel() + a2[:, None] * nn.ravel()
+            best = None
+            for i in range(PHASE_STEPS):
+                for j in range(PHASE_STEPS):
+                    origin = a1 * (i / PHASE_STEPS) + a2 * (j / PHASE_STEPS)
+                    pts = base + origin[:, None]
+                    c = np.clip(pts[0].astype(int), 0, w - 1)
+                    r = np.clip(pts[1].astype(int), 0, h - 1)
+                    sel = mask[r, c]
+                    if sel.sum() < 2:
+                        continue
+                    sub = pts[:, sel]
+                    if tree is None:
+                        score, hit = 0.0, np.zeros(sub.shape[1], bool)
+                    else:
+                        d, _ = tree.query(sub.T, k=1)
+                        hit = d <= match_px
+                        score = float(hit.mean() - 0.05 * d.mean() / match_px)
+                    if best is None or score > best[0]:
+                        best = (score, sub, hit)
+            if best is not None:
+                pts_all.append(best[1])
+                hits_all.append(best[2])
+
+    if not pts_all:
+        raise NoLattice("Kisi tidak bisa dipasang di dalam persil")
+    return np.hstack(pts_all), float(np.concatenate(hits_all).mean())
+
+
 def fit_phase(mask, lat, cand, match_px):
     """Pilih fase kisi yang paling banyak mencocokkan kandidat mahkota.
 
@@ -284,10 +343,12 @@ def fit(prod, local, ident: str) -> dict:
 
     spacing_px = min(np.linalg.norm(lat["a1"]), np.linalg.norm(lat["a2"]))
     match_px = max(2.0, MATCH_RADIUS * spacing_px)
-    cand, _ = crown_candidates(green, mask, spacing_px,
-                               sigma_px=max(1.0, CROWN_SIGMA_M / mpp))
+    cand = crown.centers_obia(green, mask, spacing_px, CROWN_RADIUS_M / mpp)
+    if len(cand) < 5:      # kebun tidak beraturan / tajuk tidak terpisah
+        cand, _ = crown_candidates(green, mask, spacing_px,
+                                   sigma_px=max(1.0, CROWN_SIGMA_M / mpp))
 
-    _, pts, score = fit_phase(mask, lat, cand, match_px)
+    pts, score = fit_phase_local(mask, lat, cand, match_px)
     pts, hit, dist = match_to_candidates(pts, cand, match_px)
 
     vigor, categories = classify(pts, hit, green, mask)
@@ -317,8 +378,10 @@ def fit(prod, local, ident: str) -> dict:
         "row_angle_deg": round(lat["angle_deg"], 1),
         "cell_area_m2": round(float(cell_area_m2), 2),
         "sph_from_lattice": round(10_000.0 / cell_area_m2, 1) if cell_area_m2 else None,
+        "detector": "obia_weighted",
         "n_candidates": int(len(cand)),
         "match_rate": round(match_rate, 3),
+        "phase": "per-blok",
         "median_offset_m": round(median_offset_m, 2) if median_offset_m is not None else None,
         "phase_score": round(float(score), 3),
         "kategori": {c: int(categories.count(c)) for c in CATEGORIES},
@@ -328,13 +391,17 @@ def fit(prod, local, ident: str) -> dict:
     }
 
     with local.cursor(row_factory=dict_row) as cur:
-        cur.execute("DELETE FROM analytics.tree WHERE land_parcel_pk = %s AND method = %s",
-                    (parcel["id"], METHOD))
+        # hanya hasil VERSI INI yang diganti; versi lain tetap tersimpan
+        cur.execute(
+            """DELETE FROM analytics.tree
+               WHERE land_parcel_pk = %s AND method = %s AND model_version = %s""",
+            (parcel["id"], METHOD, GRID_VERSION))
         if points:
             cur.executemany(
-                """INSERT INTO analytics.tree (land_parcel_pk, method, geom, score, category)
-                   VALUES (%s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s)""",
-                [(parcel["id"], METHOD, lon, lat_, float(v), c)
+                """INSERT INTO analytics.tree
+                     (land_parcel_pk, method, model_version, geom, score, category)
+                   VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s)""",
+                [(parcel["id"], METHOD, GRID_VERSION, lon, lat_, float(v), c)
                  for (lon, lat_), v, c in zip(points, vigor, categories)],
             )
         cur.execute(
@@ -342,8 +409,7 @@ def fit(prod, local, ident: str) -> dict:
                  (land_parcel_pk, parcel_id, method, model_version, image_date,
                   tree_count, sph_used, area_ha, confidence, params)
                VALUES (%s, %s, %s, %s, NULL, %s, %s, %s, %s, %s)
-               ON CONFLICT (land_parcel_pk, method) DO UPDATE SET
-                 model_version = EXCLUDED.model_version,
+               ON CONFLICT (land_parcel_pk, method, model_version) DO UPDATE SET
                  tree_count    = EXCLUDED.tree_count,
                  sph_used      = EXCLUDED.sph_used,
                  area_ha       = EXCLUDED.area_ha,

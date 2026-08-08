@@ -34,6 +34,8 @@
   button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2d6a4f; color: #fff; cursor: pointer; }
   button:disabled { opacity: .5; }
   input[type=number] { width: 80px; padding: 6px; border: 1px solid #bbb; border-radius: 6px; }
+  select { width: 100%; padding: 6px; border: 1px solid #bbb; border-radius: 6px; margin: 3px 0 6px; }
+  #versionPick { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
   .big { font-size: 28px; font-weight: 700; color: #2d6a4f; }
   .muted { color: #666; font-size: 12px; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
@@ -92,6 +94,11 @@
     <dl id="attrs"></dl>
     <div class="card" id="summaryCard" hidden>
       <h2>Ringkasan pohon</h2>
+      <div id="versionPick" hidden>
+        <label class="muted" for="modelVersion">Versi model</label>
+        <select id="modelVersion"></select>
+        <div id="versionInfo" class="muted"></div>
+      </div>
       <div id="summary"></div>
     </div>
     <div class="card">
@@ -384,6 +391,7 @@ async function selectParcel(pk) {
   $('gridResult').innerHTML = '';
   $('summaryCard').hidden = true;
   map.getSource('parcel').setData(f);
+  await loadVersions();
   loadTrees();
   const [minX, minY, maxX, maxY] = f.geometry.bbox ?? bboxOf(f.geometry);
   map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, maxZoom: 17 });
@@ -412,8 +420,33 @@ const CAT = [
   ['kosong', '#FF1744', 'Kosong / mati', 'catKosong', 'nKosong'],
 ];
 
+let versions = [];
+
+async function loadVersions() {
+  versions = await (await fetch(`/api/parcel/${currentPk}/versions`)).json();
+  const sel = $('modelVersion');
+  $('versionPick').hidden = versions.length < 1;
+  sel.innerHTML = versions.map(v =>
+    `<option value="${v.model_version}">${v.model_version} — ${v.n_points} pohon</option>`).join('');
+  if (versions.length) sel.value = versions[0].model_version;   // terbaru
+  showVersionInfo();
+}
+
+function showVersionInfo() {
+  const v = versions.find(x => x.model_version === $('modelVersion').value);
+  $('versionInfo').innerHTML = v ? [
+    v.detector ? `detektor ${v.detector}` : null,
+    v.match_rate != null ? `cocok ke tajuk ${(v.match_rate * 100).toFixed(0)}%` : null,
+    v.median_offset_m != null ? `simpangan ${v.median_offset_m} m` : null,
+  ].filter(Boolean).join(' · ') : '';
+}
+
+$('modelVersion').addEventListener('change', () => { showVersionInfo(); loadTrees(); });
+
 async function loadTrees() {
-  const fc = await (await fetch(`/api/parcel/${currentPk}/trees`)).json();
+  const v = $('modelVersion').value;
+  const url = `/api/parcel/${currentPk}/trees` + (v ? `?version=${encodeURIComponent(v)}` : '');
+  const fc = await (await fetch(url)).json();
   map.getSource('trees').setData(fc);
   renderSummary(fc.features);
   return fc.features.length;

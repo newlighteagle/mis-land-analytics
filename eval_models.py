@@ -95,6 +95,61 @@ def template_match(gray, mask, lat, mpp, rounds=3):
     return pts
 
 
+def obia_watershed(gray, green, mask, spacing_px, crown_radius_px):
+    """OBIA: segmentasi tajuk lalu ambil sentroid tiap objek.
+
+    Pendekatan berbasis objek, bukan titik: citra dibagi menjadi wilayah
+    tajuk memakai watershed (marker = puncak lokal, batas = celah gelap),
+    lalu pusat massa tiap wilayah dipakai sebagai posisi pohon. Segmen yang
+    luasnya jauh menyimpang dari luas sel tanam dibuang.
+    """
+    from skimage.measure import regionprops
+    from skimage.segmentation import watershed
+
+    sm = gaussian_filter(green.astype(np.float32), sigma=max(1.0, 0.3 * crown_radius_px))
+    markers_pk = peak_local_max(sm, min_distance=max(2, int(0.45 * spacing_px)),
+                                labels=mask, exclude_border=False)
+    if len(markers_pk) < 5:
+        return np.empty((2, 0))
+    markers = np.zeros(sm.shape, np.int32)
+    markers[tuple(markers_pk.T)] = np.arange(1, len(markers_pk) + 1)
+
+    labels = watershed(-sm, markers, mask=mask)
+    cell_px = 0.866 * spacing_px ** 2
+    cents = []
+    for r in regionprops(labels):
+        if 0.25 * cell_px <= r.area <= 2.5 * cell_px:
+            cents.append((r.centroid[1], r.centroid[0]))       # (x, y)
+    return np.array(cents, float).T if cents else np.empty((2, 0))
+
+
+def obia_intensity_weighted(gray, green, mask, spacing_px, crown_radius_px):
+    """Varian OBIA: sentroid berbobot kehijauan, bukan sentroid geometris.
+
+    Pusat massa geometris bisa tergeser oleh bentuk segmen yang tidak simetris;
+    membobot dengan kehijauan menarik titik ke bagian tajuk yang paling rimbun.
+    """
+    from skimage.measure import regionprops
+    from skimage.segmentation import watershed
+
+    sm = gaussian_filter(green.astype(np.float32), sigma=max(1.0, 0.3 * crown_radius_px))
+    pk = peak_local_max(sm, min_distance=max(2, int(0.45 * spacing_px)),
+                        labels=mask, exclude_border=False)
+    if len(pk) < 5:
+        return np.empty((2, 0))
+    markers = np.zeros(sm.shape, np.int32)
+    markers[tuple(pk.T)] = np.arange(1, len(pk) + 1)
+    labels = watershed(-sm, markers, mask=mask)
+    w = np.clip(sm - sm[mask].min(), 0, None)
+    cell_px = 0.866 * spacing_px ** 2
+    cents = []
+    for r in regionprops(labels, intensity_image=w):
+        if 0.25 * cell_px <= r.area <= 2.5 * cell_px:
+            cy, cx = r.centroid_weighted
+            cents.append((cx, cy))
+    return np.array(cents, float).T if cents else np.empty((2, 0))
+
+
 def variants(img, mask, mpp, lat):
     gray = img.rgb.astype(np.float32).mean(axis=2)
     green = tree_grid.greenness(img.rgb)
@@ -119,6 +174,11 @@ def variants(img, mask, mpp, lat):
     res = {k: v.T for k, v in out.items() if len(v)}      # -> (2, N)
     for rounds in (1, 3):
         res[f"template_r{rounds}"] = template_match(gray, mask, lat, mpp, rounds=rounds)
+    for name, fn in (("obia_watershed", obia_watershed),
+                     ("obia_weighted", obia_intensity_weighted)):
+        pts = fn(gray, green, mask, sp, cr)
+        if pts.shape[1]:
+            res[name] = pts
     return res
 
 
@@ -158,21 +218,23 @@ def main():
     for name, pts in cands.items():
         m = crown.position_metrics(pts, gray, mask, sp, cr, mpp)
         m.update(crown.lattice_regularity(pts, lat["a1"], lat["a2"], mpp))
+        m.update(crown.lattice_regularity_local(pts, lat["a1"], lat["a2"], mpp))
         m["ratio_to_expected"] = round(pts.shape[1] / expect, 2)
         rows.append((name, m))
 
-    rows.sort(key=lambda r: (r[1]["lattice_rmse_m"] is None, r[1]["lattice_rmse_m"]))
-    print(f"{'varian':20} {'n':>5} {'rasio':>6} | {'kisi rmse':>9} {'<=1m':>6} {'<=2m':>6} | "
-          f"{'simetri%':>9} {'xoffset':>8}")
+    rows.sort(key=lambda r: (r[1]["local_rmse_m"] is None, r[1]["local_rmse_m"]))
+    print(f"{'varian':20} {'n':>5} {'rasio':>6} | {'LOKAL rmse':>10} {'<=1m':>6} {'<=2m':>6} | "
+          f"{'global rmse':>11} | {'simetri%':>9}")
     print("-" * 84)
     for name, m in rows:
         print(f"{name:20} {m['n_points']:5} {m['ratio_to_expected']:6.2f} | "
-              f"{m['lattice_rmse_m']:9.2f} {m['lattice_within_1m']:6.2f} {m['lattice_within_2m']:6.2f} | "
-              f"{m['symmetry_pct']:9.1f} {m['xmethod_offset_m']:8.2f}")
+              f"{m['local_rmse_m']:10.2f} {m['local_within_1m']:6.2f} {m['local_within_2m']:6.2f} | "
+              f"{m['lattice_rmse_m']:11.2f} | {m['symmetry_pct']:9.1f}")
 
-    print("\nkisi rmse = simpangan ke posisi kisi ideal (makin kecil makin rapi; "
-          "metrik netral)\nsimetri%  = persentil simetri radial (bias ke varian FRST)\n"
-          "xoffset   = jarak ke detektor celah (bias ke varian gap_distance)")
+    print("\nLOKAL rmse = simpangan ke kisi yang fasenya dicari ulang per blok — "
+          "menyerap lengkungan\n             barisan tanam, jadi ukuran akurasi model yang lebih adil."
+          "\nglobal rmse = kisi kaku satu fase (menghukum lengkungan lahan)."
+          "\nsimetri%    = persentil simetri radial (bias ke varian FRST).")
 
     if not args.no_store:
         with local.cursor() as cur:

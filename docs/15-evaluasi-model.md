@@ -38,15 +38,49 @@ Tiap varian detektor diukur dengan metrik yang sama lalu dicatat ke `analytics.m
 | `frst_bright` — simetri radial | 255 | 0,96 | 3,53 | 0,04 | 0,20 |
 | `frst_dark` | 280 | 1,05 | 3,54 | 0,07 | 0,20 |
 
+## Temuan kunci: sebagian besar "galat" ternyata milik lahan
+
+Metrik kisi kaku menyalahkan model atas sesuatu yang bukan salahnya. Barisan tanam di kebun swadaya **melengkung dan bergeser**; kisi satu fase untuk seluruh persil memaksa titik meleset di ujung-ujung lahan.
+
+Saat fase kisi dicari ulang **per blok 4×4 sel**, angkanya berubah drastis:
+
+| Varian | rmse kisi kaku | rmse kisi lokal | ≤1 m (lokal) |
+|---|---|---|---|
+| `v2_greenness` | 2,50 | **1,47** | 0,56 |
+| `obia_weighted` | 2,56 | 1,50 | **0,63** |
+| `obia_watershed` | 2,48 | 1,59 | **0,64** |
+| `template_r3` | 2,48 | 1,58 | 0,56 |
+| `random` | 3,54 | 3,33 | 0,07 |
+
+Titik acak nyaris tidak membaik (3,54 → 3,33), jadi perbaikan besar pada detektor asli memang nyata, bukan artefak metrik yang jadi longgar.
+
+**Dua perbaikan yang lahir dari temuan ini, dan keduanya sudah masuk ke model produksi `lattice_fit/v3`:**
+
+1. **Fase kisi per blok** (`fit_phase_local`) — kisi mengikuti lengkungan barisan tanam.
+2. **Detektor OBIA** (`crown.centers_obia`) — segmentasi watershed pada peta kehijauan, lalu pusat massa berbobot tiap segmen tajuk. Unggul pada kriteria paling praktis (titik dalam 1 m): 63–64% vs 56%.
+
+Hasil pada persil yang sama, model produksi:
+
+| Versi | Kandidat | Cocok ke tajuk | Simpangan median |
+|---|---|---|---|
+| `lattice_fit/v2` (puncak kehijauan, fase global) | 256 | 83% | 2,00 m |
+| **`lattice_fit/v3` (OBIA + fase per blok)** | 253 | **91%** | **1,08 m** |
+
 ## Kesimpulan yang harus dibaca apa adanya
 
-1. **Semua detektor klasik mentok di sekitar 2,5 m rmse** — hanya sedikit lebih baik daripada acak (3,5 m), dan cuma ~20% titik berada dalam 1 m dari posisi kisi ideal.
-2. **FRST (simetri radial) gagal**, praktis setara acak, meski secara teori paling cocok untuk struktur memancar. Penyebabnya: gradien di tepi pelepah tegak lurus arah pelepah, jadi tidak menunjuk ke pusat tajuk.
-3. **Template hasil belajar sendiri sedikit unggul** tapi bedanya tipis terhadap puncak kehijauan — belum layak disebut perbaikan berarti.
-4. `symmetry_pct` model terpakai hanya 17,4 (acak 46,3), artinya titiknya justru **menjauhi** pusat simetri — konsisten dengan pengamatan visual bahwa titik menempel ke rumpun pelepah.
+1. **FRST (simetri radial) gagal**, praktis setara acak, meski secara teori paling cocok untuk struktur memancar. Penyebabnya: gradien di tepi pelepah tegak lurus arah pelepah, jadi tidak menunjuk ke pusat tajuk.
+2. **Template hasil belajar sendiri** setara dengan puncak kehijauan — menarik tapi tidak mengungguli OBIA pada kriteria ≤1 m.
+3. **Yang benar-benar menaikkan akurasi bukan detektornya, melainkan membiarkan kisi melengkung** mengikuti lahan. Ini pelajaran yang mudah terlewat kalau hanya menatap gambar.
+4. `symmetry_pct` bukan metrik yang berguna di sini: `frst_bright` meraih 99,4 sambil berkinerja setara acak pada metrik netral — bukti bahwa metrik yang sekelas dengan detektornya akan selalu menyanjung dirinya sendiri.
 
-**Artinya penyetelan parameter sudah tidak akan banyak menolong.** Untuk melompat ke akurasi yang benar-benar bagus, yang dibutuhkan berbeda kelas:
+**Sisa jarak menuju akurasi yang benar-benar tinggi tidak akan ditutup oleh penyetelan parameter.** Yang dibutuhkan berbeda kelas:
 
 - **Detektor terlatih (CNN)** — perlu label pusat tajuk pada beberapa ratus pohon sebagai data latih. Ini jalur standar di literatur dan yang paling mungkin berhasil pada 0,3 m/px.
 - **Citra lebih tajam** — drone 5–10 cm membuat pusat tajuk terlihat tegas, dan detektor sederhana pun cukup.
 - **Ground truth lapangan** — sekaligus mengubah `lattice_rmse_m` dari metrik pembanding jadi ukuran galat mutlak.
+
+## Hasil tiap versi disimpan berdampingan
+
+`analytics.tree` dan `analytics.tree_count` memakai kunci `(persil, metode, **versi model**)`, jadi menjalankan versi baru **tidak menghapus** hasil versi lama (`sql/005_model_version.sql`). Di dashboard, kartu *Ringkasan pohon* punya pemilih **Versi model** beserta metrik tiap versi, sehingga perbaikan bisa dibandingkan langsung di peta.
+
+Endpoint terkait: `GET /api/parcel/{pk}/versions` (daftar versi + metrik) dan `GET /api/parcel/{pk}/trees?version=...`.

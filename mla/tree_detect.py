@@ -160,18 +160,36 @@ def detect(prod, local, ident: str, sph: float | None = None) -> dict:
     return row
 
 
-def points_for(local, land_parcel_pk: str, method: str = METHOD) -> dict:
-    """Titik pohon sebagai GeoJSON FeatureCollection."""
+def points_for(local, land_parcel_pk: str, method: str = METHOD,
+               model_version: str | None = None) -> dict:
+    """Titik pohon sebagai GeoJSON FeatureCollection.
+
+    Tanpa `model_version`, dipakai versi terbaru yang tersedia untuk persil
+    itu — hasil versi lama tetap tersimpan dan bisa diminta secara eksplisit.
+    """
     with local.cursor(row_factory=dict_row) as cur:
+        if model_version is None:
+            cur.execute(
+                """SELECT model_version FROM analytics.tree
+                   WHERE land_parcel_pk = %s AND method = %s
+                   ORDER BY model_version DESC LIMIT 1""",
+                (land_parcel_pk, method),
+            )
+            row = cur.fetchone()
+            if not row:
+                return {"type": "FeatureCollection", "features": []}
+            model_version = row["model_version"]
         cur.execute(
             """SELECT id, ST_X(geom) AS lon, ST_Y(geom) AS lat, score, category
-               FROM analytics.tree WHERE land_parcel_pk = %s AND method = %s
+               FROM analytics.tree
+               WHERE land_parcel_pk = %s AND method = %s AND model_version = %s
                ORDER BY id""",
-            (land_parcel_pk, method),
+            (land_parcel_pk, method, model_version),
         )
         rows = cur.fetchall()
     return {
         "type": "FeatureCollection",
+        "model_version": model_version,
         "features": [
             {"type": "Feature",
              "properties": {"id": r["id"], "no": i + 1,

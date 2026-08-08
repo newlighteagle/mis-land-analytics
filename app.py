@@ -293,10 +293,41 @@ def analyze_tree_grid(pk: str):
 
 
 @app.get("/api/parcel/{pk}/trees")
-def trees(pk: str, method: str = tree_grid.METHOD):
-    """Titik pohon sebagai GeoJSON FeatureCollection."""
+def trees(pk: str, method: str = tree_grid.METHOD, version: str | None = None):
+    """Titik pohon sebagai GeoJSON FeatureCollection (default: versi terbaru)."""
     with local_conn() as local:
-        return tree_detect.points_for(local, pk, method)
+        return tree_detect.points_for(local, pk, method, version)
+
+
+@app.get("/api/parcel/{pk}/versions")
+def versions(pk: str, method: str = tree_grid.METHOD):
+    """Versi model yang tersedia untuk persil ini, beserta metriknya.
+
+    Hasil tiap versi disimpan berdampingan, jadi perbaikan model bisa
+    dibandingkan langsung di peta.
+    """
+    with local_conn() as local, local.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """SELECT t.model_version, count(*) AS n_points,
+                      c.params->>'match_rate'      AS match_rate,
+                      c.params->>'median_offset_m' AS median_offset_m,
+                      c.params->>'detector'        AS detector,
+                      c.confidence, c.computed_at
+               FROM analytics.tree t
+               LEFT JOIN analytics.tree_count c
+                 ON c.land_parcel_pk = t.land_parcel_pk
+                AND c.method = t.method AND c.model_version = t.model_version
+               WHERE t.land_parcel_pk = %s AND t.method = %s
+               GROUP BY t.model_version, c.params, c.confidence, c.computed_at
+               ORDER BY t.model_version DESC""",
+            (pk, method),
+        )
+        rows = cur.fetchall()
+    for r in rows:
+        r["computed_at"] = r["computed_at"].isoformat() if r["computed_at"] else None
+        for k in ("match_rate", "median_offset_m"):
+            r[k] = float(r[k]) if r[k] is not None else None
+    return rows
 
 
 @app.get("/")
