@@ -21,6 +21,7 @@ Buat database `mis_analytics` (sekali saja) lalu jalankan migrasi schema:
 ```bash
 /opt/homebrew/opt/postgresql@17/bin/createdb mis_analytics   # jika belum ada
 /opt/homebrew/opt/postgresql@17/bin/psql mis_analytics -f sql/001_init.sql
+/opt/homebrew/opt/postgresql@17/bin/psql mis_analytics -f sql/002_tree_points.sql
 ```
 
 Skrip SQL idempotent (`CREATE ... IF NOT EXISTS`) — aman dijalankan ulang. Catatan: `psql` tidak ada di PATH; pakai path Homebrew di atas, atau `/opt/homebrew/opt/libpq/bin/psql` untuk koneksi ke `mis-prod`.

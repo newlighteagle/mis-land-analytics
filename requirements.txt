@@ -2,3 +2,9 @@ psycopg[binary]>=3.2
 python-dotenv>=1.0
 fastapi>=0.115
 uvicorn>=0.30
+# citra & deteksi per pohon (mla/imagery.py, mla/tree_detect.py)
+numpy>=2.0
+scipy>=1.14
+scikit-image>=0.24
+pillow>=10.0
+requests>=2.32

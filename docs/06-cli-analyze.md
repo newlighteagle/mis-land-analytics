@@ -48,6 +48,16 @@ JSON baris hasil (setelah di-upsert ke `analytics.tree_count`), contoh:
 }
 ```
 
+## Subcommand `tree-detect` (eksperimental)
+
+```bash
+.venv/bin/python analyze.py tree-detect --parcel-id TJP.0001.A.14.06.06.2018
+```
+
+Deteksi per pohon dari citra. **Belum menghasilkan angka yang valid** dengan citra yang tersedia sekarang — lihat [12-modul-tree-detect.md](12-modul-tree-detect.md). Sengaja hanya tersedia di CLI (tidak di dashboard) supaya hasil eksperimen tidak tampil sebagai hasil resmi. Argumen sama dengan `tree-count`; `--sph` di sini dipakai untuk menurunkan jarak minimum antar puncak, bukan untuk mengalikan luas.
+
+Keluar dengan pesan `Citra tidak tersedia: ...` jika semua zoom hanya berisi tile placeholder.
+
 ## Error & exit
 
 | Kondisi | Perilaku |

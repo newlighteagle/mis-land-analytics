@@ -29,6 +29,23 @@ Satu baris = satu hasil tree count per persil per metode (agregat; tabel titik p
 
 **Constraint kunci**: `UNIQUE (land_parcel_pk, method)` — satu persil hanya punya **satu hasil terkini per metode**. Menjalankan ulang analisa yang sama = `ON CONFLICT ... DO UPDATE` (menimpa), bukan menambah baris. Konsekuensinya tidak ada riwayat antar-run untuk metode yang sama; riwayat yang ditampilkan dashboard adalah riwayat **antar-metode**.
 
+## Tabel `analytics.tree` (`sql/002_tree_points.sql`)
+
+Titik per pohon hasil deteksi citra — dibutuhkan modul kesehatan/HPT yang bekerja di level pohon.
+
+| Kolom | Tipe | Catatan |
+|---|---|---|
+| `id` | `bigserial` PK | |
+| `land_parcel_pk` | `text` | = `tbl_land_parcel.id` |
+| `method` | `text` | Selaras dengan `method` di `tree_count` (mis. `detection_esri`) |
+| `geom` | `geometry(Point, 4326)` | Posisi pohon, index GiST |
+| `score` | `real` | Kekuatan puncak deteksi, dinormalisasi 0–1 dalam persil |
+| `detected_at` | `timestamptz` | |
+
+Pola tulisnya **delete + insert**: satu run deteksi mengganti seluruh titik persil untuk method yang sama, konsisten dengan upsert satu-baris di `tree_count`.
+
+Saat ini tabel kosong — hasil uji deteksi dihapus karena citranya belum memadai (lihat [12-modul-tree-detect.md](12-modul-tree-detect.md)).
+
 ## Konvensi untuk tabel modul berikutnya
 
 - Selalu simpan `land_parcel_pk` + `parcel_id` (denormalisasi) + `method` + `model_version` + `image_date` + `params jsonb` + `computed_at`.

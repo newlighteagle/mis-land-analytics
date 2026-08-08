@@ -10,10 +10,21 @@ Dashboard spasial satu file (HTML + CSS + JS, tanpa build step). Peta **MapLibre
 
 lalu buka **http://localhost:8008**. Butuh internet (MapLibre dimuat dari unpkg CDN, tile basemap dari server Esri) dan koneksi ke kedua database.
 
+## Dua mode pemilihan persil
+
+Tombol di atas kotak pencarian memilih mode:
+
+| Mode | Perilaku |
+|---|---|
+| **Belum dianalisa** (default) | Pencarian penuh ke database prod, ketik ≥3 karakter ID lahan atau nama petani (debounce 250 ms, maks. 20 hasil). Persil yang sudah punya hasil analisa **dikecualikan** — jadi daftar ini adalah antrean kerja. |
+| **Sudah dianalisa** | Select box yang bisa dicari: seluruh daftar persil yang pernah dianalisa dimuat sekali dari `/api/analyzed` lalu difilter di klien saat mengetik. Menampilkan nama petani, luas, jumlah metode, dan tanggal analisa terakhir. Daftar kosong menampilkan "Belum ada persil yang dianalisa." |
+
+Setelah menjalankan analisa, daftar "sudah dianalisa" otomatis dimuat ulang sehingga persil itu langsung berpindah mode.
+
 ## Alur pemakaian
 
-1. **Cari** — ketik ≥3 karakter ID lahan atau nama petani di kotak pencarian (debounce 250 ms, maksimal 20 hasil).
-2. **Pilih persil** — klik salah satu hasil. Panel menampilkan atribut (petani, kelompok, luas, komoditas, status lahan, blok, PSR); peta menggambar poligon persil (kuning, semi-transparan) dan zoom ke bounding box-nya (maks. zoom 17).
+1. **Cari / pilih persil** — sesuai mode di atas.
+2. **Klik hasil** — panel menampilkan atribut (petani, kelompok, luas, komoditas, status lahan, blok, PSR); peta menggambar poligon persil (kuning, semi-transparan) dan zoom ke bounding box-nya (maks. zoom 17).
 3. **Analisa** — kartu *Tree count*: atur SPH (input angka, 50–200, default 136) lalu klik **Hitung (baseline)**. Hasil tampil sebagai `± N pohon` beserta luas, SPH, versi metode, dan confidence.
 4. **Riwayat** — kartu *Riwayat hasil* menampilkan semua hasil tersimpan untuk persil itu (per metode; menjalankan ulang metode yang sama menimpa hasil lamanya — lihat [05-database-mis-analytics.md](05-database-mis-analytics.md)).
 

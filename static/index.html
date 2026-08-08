@@ -12,11 +12,15 @@
   #map { flex: 1; }
   #panel { width: 380px; padding: 16px; overflow-y: auto; background: #fafafa; border-right: 1px solid #ddd; }
   h1 { font-size: 16px; margin-bottom: 12px; }
-  #q { width: 100%; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
-  #hits { list-style: none; margin-top: 4px; }
-  #hits li { padding: 6px 8px; cursor: pointer; border-radius: 4px; }
-  #hits li:hover { background: #e8f0e8; }
-  #hits .sub { color: #666; font-size: 12px; }
+  input[type=search], input[type=text] { width: 100%; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
+  .modes { display: flex; gap: 4px; margin-bottom: 8px; }
+  .modes button { flex: 1; background: #eee; color: #333; font-size: 13px; padding: 7px 0; }
+  .modes button.active { background: #2d6a4f; color: #fff; }
+  .hits { list-style: none; margin-top: 4px; max-height: 260px; overflow-y: auto; }
+  .hits li { padding: 6px 8px; cursor: pointer; border-radius: 4px; }
+  .hits li:hover { background: #e8f0e8; }
+  .hits .sub { color: #666; font-size: 12px; }
+  .empty { color: #888; font-size: 12px; padding: 6px 8px; }
   #detail { margin-top: 16px; display: none; }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; }
   dt { color: #666; }
@@ -34,8 +38,18 @@
 <body>
 <div id="panel">
   <h1>🌴 MIS Land Analytics</h1>
-  <input id="q" placeholder="Cari ID lahan atau nama petani…" autocomplete="off">
-  <ul id="hits"></ul>
+  <div class="modes">
+    <button id="modeNew" class="active">Belum dianalisa</button>
+    <button id="modeDone">Sudah dianalisa</button>
+  </div>
+  <div id="paneNew">
+    <input type="search" id="q" placeholder="Cari ID lahan atau nama petani…" autocomplete="off">
+    <ul id="hits" class="hits"></ul>
+  </div>
+  <div id="paneDone" hidden>
+    <input type="text" id="qDone" placeholder="Pilih / cari persil yang sudah dianalisa…" autocomplete="off">
+    <ul id="hitsDone" class="hits"></ul>
+  </div>
   <div id="detail">
     <dl id="attrs"></dl>
     <div class="card">
@@ -78,30 +92,65 @@ map.on('load', () => {
 });
 
 const $ = id => document.getElementById(id);
-let currentPk = null, timer = null;
+let currentPk = null, timer = null, analyzed = [];
 
+// --- Mode "Belum dianalisa": pencarian penuh ke database, hasil analisa dikecualikan
 $('q').addEventListener('input', () => {
   clearTimeout(timer);
   timer = setTimeout(async () => {
     const q = $('q').value.trim();
     if (q.length < 3) { $('hits').innerHTML = ''; return; }
-    const rows = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`)).json();
-    $('hits').innerHTML = rows.map(r =>
+    const rows = await (await fetch(`/api/search?q=${encodeURIComponent(q)}&status=new`)).json();
+    $('hits').innerHTML = rows.length ? rows.map(r =>
       `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
-       <span class="sub">${r.farmer_name} · ${(+r.area).toFixed(2)} ha · ${r.crop_type ?? '-'}</span></li>`).join('');
+       <span class="sub">${r.farmer_name} · ${(+r.area).toFixed(2)} ha · ${r.crop_type ?? '-'}</span></li>`).join('')
+      : '<li class="empty">Tidak ada persil belum dianalisa yang cocok.</li>';
   }, 250);
 });
 
-$('hits').addEventListener('click', e => {
-  const li = e.target.closest('li[data-pk]');
-  if (li) selectParcel(li.dataset.pk);
-});
+// --- Mode "Sudah dianalisa": select box yang bisa dicari (daftar kecil, difilter di klien)
+async function loadAnalyzed() {
+  analyzed = await (await fetch('/api/analyzed')).json();
+  renderAnalyzed($('qDone').value.trim().toLowerCase());
+}
+
+function renderAnalyzed(needle = '') {
+  const rows = needle
+    ? analyzed.filter(r => (r.parcel_id + ' ' + (r.farmer_name ?? '')).toLowerCase().includes(needle))
+    : analyzed;
+  $('hitsDone').innerHTML = rows.length ? rows.map(r =>
+    `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
+     <span class="sub">${r.farmer_name ?? '-'} · ${r.area != null ? r.area.toFixed(2) + ' ha · ' : ''}${r.n_methods} metode ·
+     ${r.last_computed.slice(0, 10)}</span></li>`).join('')
+    : `<li class="empty">${analyzed.length ? 'Tidak ada yang cocok.' : 'Belum ada persil yang dianalisa.'}</li>`;
+}
+
+$('qDone').addEventListener('input', () => renderAnalyzed($('qDone').value.trim().toLowerCase()));
+
+for (const [btn, other, pane, otherPane] of [
+  ['modeNew', 'modeDone', 'paneNew', 'paneDone'],
+  ['modeDone', 'modeNew', 'paneDone', 'paneNew'],
+]) {
+  $(btn).addEventListener('click', () => {
+    $(btn).classList.add('active');
+    $(other).classList.remove('active');
+    $(pane).hidden = false;
+    $(otherPane).hidden = true;
+    if (btn === 'modeDone') loadAnalyzed();
+  });
+}
+
+for (const id of ['hits', 'hitsDone']) {
+  $(id).addEventListener('click', e => {
+    const li = e.target.closest('li[data-pk]');
+    if (li) selectParcel(li.dataset.pk);
+  });
+}
 
 async function selectParcel(pk) {
   currentPk = pk;
   const f = await (await fetch(`/api/parcel/${pk}`)).json();
   const p = f.properties;
-  $('hits').innerHTML = '';
   $('detail').style.display = 'block';
   $('attrs').innerHTML = [
     ['ID lahan', p.parcel_id], ['Petani', p.farmer_name],
@@ -143,6 +192,7 @@ $('run').addEventListener('click', async () => {
       <div class="muted">${r.area_ha.toFixed(2)} ha × ${r.sph_used} SPH · metode ${r.model_version} ·
       confidence ${r.confidence}</div>`;
     loadHistory();
+    loadAnalyzed();   // persil ini kini pindah ke daftar "sudah dianalisa"
   } finally { $('run').disabled = false; }
 });
 </script>

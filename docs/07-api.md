@@ -10,14 +10,36 @@ Juga menyajikan dashboard (`GET /` → `static/index.html`, aset di `/static`). 
 
 ## Endpoint
 
-### `GET /api/search?q=<teks>`
+### `GET /api/search?q=<teks>&status=<all|new|done>`
 
 Cari persil aktif berdasarkan potongan `parcel_id` **atau** nama petani (ILIKE, case-insensitive). Kembalikan maksimal 20 hasil, terurut `parcel_id`. Query < 3 karakter langsung mengembalikan `[]` (tanpa menyentuh database).
+
+Parameter `status` (default `all`) menyaring berdasarkan ada/tidaknya hasil analisa:
+
+| Nilai | Arti |
+|---|---|
+| `all` | Semua persil aktif |
+| `new` | **Belum pernah** dianalisa |
+| `done` | Sudah pernah dianalisa |
+
+Filternya lintas-database: daftar PK yang sudah dianalisa diambil dari `mis_analytics`, lalu dikirim sebagai parameter array ke query `mis-prod` (`p.id = ANY(%s)`) — tidak ada join lintas-database.
 
 ```json
 [
   { "id": "cmrsro65k...", "parcel_id": "TJP.0001.A.14.06.06.2018",
     "area": 2.12, "crop_type": null, "farmer_name": "Agus Nugroho Budiarto" }
+]
+```
+
+### `GET /api/analyzed`
+
+Semua persil yang sudah punya hasil analisa, terurut waktu analisa terbaru. Dipakai dashboard untuk mengisi select box mode *"Sudah dianalisa"* — dikirim sekaligus (jumlahnya kecil) lalu difilter di klien, jadi tidak ada round-trip per ketikan.
+
+```json
+[
+  { "id": "cmrsro65k...", "parcel_id": "TJP.0001.A.14.06.06.2018",
+    "farmer_name": "Agus Nugroho Budiarto", "area": 2.12,
+    "n_methods": 1, "last_computed": "2026-08-08T14:13:38+07:00" }
 ]
 ```
 
