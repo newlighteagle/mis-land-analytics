@@ -38,6 +38,15 @@
   .muted { color: #666; font-size: 12px; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
+  #legend { position: absolute; top: 10px; right: 10px; z-index: 1;
+            background: rgba(255,255,255,.94); border: 1px solid #ccc; border-radius: 8px;
+            padding: 9px 11px; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  #legend h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+               color: #666; margin-bottom: 6px; font-weight: 600; }
+  #legend label { display: flex; align-items: center; gap: 7px; cursor: pointer; padding: 2px 0; }
+  #legend .sw { width: 18px; height: 0; border-top-width: 3px; border-top-style: solid; }
+  #legend .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4d4d;
+                 border: 1px solid #fff; margin: 0 4px; }
 </style>
 </head>
 <body>
@@ -90,6 +99,15 @@
   </div>
 </div>
 <div id="map"></div>
+<div id="legend">
+  <h3>Layer</h3>
+  <label><input type="checkbox" id="lyrParcel" checked>
+    <span class="sw" style="border-top-color:#ffd60a"></span> Batas lahan terpilih</label>
+  <label><input type="checkbox" id="lyrDone" checked>
+    <span class="sw" style="border-top-color:#4cc9f0"></span> Lahan teranalisa</label>
+  <label><input type="checkbox" id="lyrTrees" checked>
+    <span class="dot"></span> Titik pohon sawit</label>
+</div>
 <script>
 const map = new maplibregl.Map({
   container: 'map',
@@ -134,7 +152,23 @@ map.on('load', () => {
       'circle-stroke-color': '#fff', 'circle-stroke-width': 0.5,
     } });
   loadGroups();
+  wireLegend();
 });
+
+// Legenda: kotak centang menyalakan/mematikan tiap layer peta
+function wireLegend() {
+  const groups = {
+    lyrParcel: ['parcel-line'],
+    lyrDone:   ['done-line', 'done-fill'],   // fill ikut mati agar klik tidak nyasar
+    lyrTrees:  ['trees'],
+  };
+  for (const [box, layers] of Object.entries(groups)) {
+    const apply = () => layers.forEach(l =>
+      map.setLayoutProperty(l, 'visibility', $(box).checked ? 'visible' : 'none'));
+    $(box).addEventListener('change', apply);
+    apply();
+  }
+}
 
 const $ = id => document.getElementById(id);
 const empty = () => ({ type: 'FeatureCollection', features: [] });

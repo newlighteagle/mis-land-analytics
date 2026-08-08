@@ -45,7 +45,8 @@ Pencarian penuh ke database prod (ketik ≥3 karakter ID lahan atau nama petani,
 
 ## Detail implementasi
 
-- Tiga layer peta bertumpuk: `done` (poligon biru, ikhtisar lahan teranalisa, bisa diklik), `parcel` (poligon kuning, lahan terpilih), `trees` (titik merah, radius ikut skala zoom).
+- Tiga layer peta bertumpuk, semuanya **garis tanpa fill**: `done` (biru, ikhtisar lahan teranalisa), `parcel` (kuning, lahan terpilih), `trees` (titik merah, radius ikut skala zoom). Layer `done-fill` tetap ada dengan `fill-opacity: 0` — tidak terlihat, tapi itulah yang menangkap klik poligon.
+- **Legenda di kanan atas peta** menyalakan/mematikan tiap layer lewat `setLayoutProperty(..., 'visibility', ...)`. Mematikan "Lahan teranalisa" ikut mematikan `done-fill`, supaya klik tidak nyasar ke poligon yang tak terlihat.
 - Peta di-inisialisasi di sekitar Riau (`center [100.7, 0.82]`, zoom 9).
 - Poligon persil dirender dari respons `GET /api/parcel/{pk}` (GeoJSON Feature) ke satu source `parcel` dengan layer `fill` + `line`.
 - Bounding box dihitung sendiri di klien (`bboxOf`) dari koordinat `Polygon`/`MultiPolygon` karena GeoJSON dari prod tidak membawa `bbox`.
