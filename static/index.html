@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MIS Land Analytics</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 14px/1.5 system-ui, sans-serif; height: 100vh; display: flex; }
+  #map { flex: 1; }
+  #panel { width: 380px; padding: 16px; overflow-y: auto; background: #fafafa; border-right: 1px solid #ddd; }
+  h1 { font-size: 16px; margin-bottom: 12px; }
+  #q { width: 100%; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
+  #hits { list-style: none; margin-top: 4px; }
+  #hits li { padding: 6px 8px; cursor: pointer; border-radius: 4px; }
+  #hits li:hover { background: #e8f0e8; }
+  #hits .sub { color: #666; font-size: 12px; }
+  #detail { margin-top: 16px; display: none; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; }
+  dt { color: #666; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-top: 12px; }
+  .card h2 { font-size: 14px; margin-bottom: 8px; }
+  button { padding: 8px 12px; border: 0; border-radius: 6px; background: #2d6a4f; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; }
+  input[type=number] { width: 80px; padding: 6px; border: 1px solid #bbb; border-radius: 6px; }
+  .big { font-size: 28px; font-weight: 700; color: #2d6a4f; }
+  .muted { color: #666; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>🌴 MIS Land Analytics</h1>
+  <input id="q" placeholder="Cari ID lahan atau nama petani…" autocomplete="off">
+  <ul id="hits"></ul>
+  <div id="detail">
+    <dl id="attrs"></dl>
+    <div class="card">
+      <h2>Tree count</h2>
+      <div>SPH <input type="number" id="sph" value="136" min="50" max="200"> pohon/ha
+        <button id="run">Hitung (baseline)</button></div>
+      <div id="tcResult"></div>
+    </div>
+    <div class="card">
+      <h2>Riwayat hasil</h2>
+      <div id="history" class="muted">Belum ada.</div>
+    </div>
+  </div>
+</div>
+<div id="map"></div>
+<script>
+const map = new maplibregl.Map({
+  container: 'map',
+  center: [100.7, 0.82], zoom: 9,
+  style: {
+    version: 8,
+    sources: {
+      esri: {
+        type: 'raster', tileSize: 256,
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        attribution: 'Imagery © Esri, Maxar, Earthstar Geographics'
+      }
+    },
+    layers: [{ id: 'esri', type: 'raster', source: 'esri' }]
+  }
+});
+map.addControl(new maplibregl.NavigationControl());
+
+map.on('load', () => {
+  map.addSource('parcel', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'parcel-fill', type: 'fill', source: 'parcel',
+    paint: { 'fill-color': '#ffd60a', 'fill-opacity': 0.15 } });
+  map.addLayer({ id: 'parcel-line', type: 'line', source: 'parcel',
+    paint: { 'line-color': '#ffd60a', 'line-width': 2.5 } });
+});
+
+const $ = id => document.getElementById(id);
+let currentPk = null, timer = null;
+
+$('q').addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(async () => {
+    const q = $('q').value.trim();
+    if (q.length < 3) { $('hits').innerHTML = ''; return; }
+    const rows = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`)).json();
+    $('hits').innerHTML = rows.map(r =>
+      `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
+       <span class="sub">${r.farmer_name} · ${(+r.area).toFixed(2)} ha · ${r.crop_type ?? '-'}</span></li>`).join('');
+  }, 250);
+});
+
+$('hits').addEventListener('click', e => {
+  const li = e.target.closest('li[data-pk]');
+  if (li) selectParcel(li.dataset.pk);
+});
+
+async function selectParcel(pk) {
+  currentPk = pk;
+  const f = await (await fetch(`/api/parcel/${pk}`)).json();
+  const p = f.properties;
+  $('hits').innerHTML = '';
+  $('detail').style.display = 'block';
+  $('attrs').innerHTML = [
+    ['ID lahan', p.parcel_id], ['Petani', p.farmer_name],
+    ['Kelompok', p.farmer_group_name ?? '-'], ['Luas', (+p.area).toFixed(2) + ' ha'],
+    ['Komoditas', p.crop_type ?? '-'], ['Status lahan', p.land_status ?? '-'],
+    ['Blok', p.blok ?? '-'], ['PSR', p.is_psr ? 'Ya' : 'Tidak'],
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  $('tcResult').innerHTML = '';
+  map.getSource('parcel').setData(f);
+  const [minX, minY, maxX, maxY] = f.geometry.bbox ?? bboxOf(f.geometry);
+  map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, maxZoom: 17 });
+  loadHistory();
+}
+
+function bboxOf(g) {
+  const pts = g.coordinates.flat(g.type === 'MultiPolygon' ? 2 : 1);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+async function loadHistory() {
+  const rows = await (await fetch(`/api/parcel/${currentPk}/results`)).json();
+  $('history').innerHTML = rows.length
+    ? `<table><tr><th>Metode</th><th>Pohon</th><th>SPH</th><th>Kapan</th></tr>` +
+      rows.map(r => `<tr><td>${r.method}</td><td>${r.tree_count}</td>
+        <td>${r.sph_used ?? '-'}</td><td>${r.computed_at.slice(0, 16).replace('T', ' ')}</td></tr>`).join('') + '</table>'
+    : 'Belum ada.';
+}
+
+$('run').addEventListener('click', async () => {
+  if (!currentPk) return;
+  $('run').disabled = true;
+  try {
+    const r = await (await fetch(`/api/parcel/${currentPk}/analyze/tree-count`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sph: +$('sph').value || null })
+    })).json();
+    $('tcResult').innerHTML = `<div class="big">± ${r.tree_count.toLocaleString('id')} pohon</div>
+      <div class="muted">${r.area_ha.toFixed(2)} ha × ${r.sph_used} SPH · metode ${r.model_version} ·
+      confidence ${r.confidence}</div>`;
+    loadHistory();
+  } finally { $('run').disabled = false; }
+});
+</script>
+</body>
+</html>
