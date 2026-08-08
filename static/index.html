@@ -366,7 +366,7 @@ async function showOverview(gid, fit) {
   const url = gid ? `/api/analyzed/geojson?group=${encodeURIComponent(gid)}` : '/api/analyzed/geojson';
   const fc = await (await fetch(url)).json();
   map.getSource('done').setData(fc);
-  if (!fit || !fc.features.length) return;
+  if (!fit || editMode || !fc.features.length) return;   // diam saat mode registrasi
   const pts = fc.features.flatMap(f => f.geometry.coordinates.flat(f.geometry.type === 'MultiPolygon' ? 2 : 1));
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]],
@@ -412,8 +412,10 @@ async function selectParcel(pk) {
   map.getSource('parcel').setData(f);
   await loadVersions();
   loadTrees();
-  const [minX, minY, maxX, maxY] = f.geometry.bbox ?? bboxOf(f.geometry);
-  map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, maxZoom: 17 });
+  if (!editMode) {          // jangan geser/zoom peta saat sedang meregistrasi titik
+    const [minX, minY, maxX, maxY] = f.geometry.bbox ?? bboxOf(f.geometry);
+    map.fitBounds([[minX, minY], [maxX, maxY]], { padding: 60, maxZoom: 17 });
+  }
   loadHistory();
 }
 
@@ -492,6 +494,8 @@ $('editToggle').addEventListener('click', () => {
   $('editHelp').hidden = !editMode;
   $('map').classList.toggle('editing', editMode);
   selectedId = null; $('delPoint').hidden = true;
+  // klik-ganda dipakai untuk menambah dua titik berdekatan, bukan untuk zoom
+  if (editMode) map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
   if (editMode) refreshTrees();
 });
 
