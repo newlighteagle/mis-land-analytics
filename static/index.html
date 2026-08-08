@@ -38,12 +38,13 @@
   .muted { color: #666; font-size: 12px; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
-  #legend { position: absolute; top: 10px; right: 10px; z-index: 1;
+  #legend { position: absolute; top: 10px; right: 10px; z-index: 1; min-width: 210px;
             background: rgba(255,255,255,.94); border: 1px solid #ccc; border-radius: 8px;
             padding: 9px 11px; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
   #legend h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
                color: #666; margin-bottom: 6px; font-weight: 600; }
   #legend label { display: flex; align-items: center; gap: 7px; cursor: pointer; padding: 2px 0; }
+  #legend hr { border: 0; border-top: 1px solid #e0e0e0; margin: 8px 0 7px; }
   #legend .sw { width: 18px; height: 0; border-top-width: 3px; border-top-style: solid; }
   #legend .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4d4d;
                  border: 1px solid #fff; margin: 0 4px; }
@@ -107,6 +108,10 @@
     <span class="sw" style="border-top-color:#4cc9f0"></span> Lahan teranalisa</label>
   <label><input type="checkbox" id="lyrTrees" checked>
     <span class="dot"></span> Titik pohon sawit</label>
+  <hr>
+  <h3>Peta dasar</h3>
+  <label><input type="radio" name="base" id="baseGoogle" checked> Google Satellite <span class="muted">(0,3 m)</span></label>
+  <label><input type="radio" name="base" id="baseEsri"> Esri World Imagery <span class="muted">(0,6 m)</span></label>
 </div>
 <script>
 const map = new maplibregl.Map({
@@ -115,16 +120,27 @@ const map = new maplibregl.Map({
   style: {
     version: 8,
     sources: {
+      google: {
+        type: 'raster', tileSize: 256, maxzoom: 21,
+        tiles: ['https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'],
+        attribution: 'Imagery © Google'
+      },
       esri: {
-        type: 'raster', tileSize: 256,
+        type: 'raster', tileSize: 256, maxzoom: 19,
         tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
         attribution: 'Imagery © Esri, Maxar, Earthstar Geographics'
       }
     },
-    layers: [{ id: 'esri', type: 'raster', source: 'esri' }]
+    // dua basemap dimuat sekaligus; pemilihan lewat visibility, bukan ganti style,
+    // supaya layer analisa di atasnya tidak perlu dibangun ulang
+    layers: [
+      { id: 'google', type: 'raster', source: 'google' },
+      { id: 'esri', type: 'raster', source: 'esri', layout: { visibility: 'none' } },
+    ]
   }
 });
-map.addControl(new maplibregl.NavigationControl());
+// kontrol zoom ditaruh di kanan bawah supaya tidak menutupi legenda di kanan atas
+map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
 map.on('load', () => {
   // ikhtisar lahan teranalisa (biru) — digambar di bawah persil terpilih
@@ -155,7 +171,7 @@ map.on('load', () => {
   wireLegend();
 });
 
-// Legenda: kotak centang menyalakan/mematikan tiap layer peta
+// Legenda: kotak centang menyalakan/mematikan layer, radio memilih peta dasar
 function wireLegend() {
   const groups = {
     lyrParcel: ['parcel-line'],
@@ -168,6 +184,12 @@ function wireLegend() {
     $(box).addEventListener('change', apply);
     apply();
   }
+  const applyBase = () => {
+    map.setLayoutProperty('google', 'visibility', $('baseGoogle').checked ? 'visible' : 'none');
+    map.setLayoutProperty('esri', 'visibility', $('baseEsri').checked ? 'visible' : 'none');
+  };
+  $('baseGoogle').addEventListener('change', applyBase);
+  $('baseEsri').addEventListener('change', applyBase);
 }
 
 const $ = id => document.getElementById(id);

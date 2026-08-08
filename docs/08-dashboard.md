@@ -46,7 +46,10 @@ Pencarian penuh ke database prod (ketik ≥3 karakter ID lahan atau nama petani,
 ## Detail implementasi
 
 - Tiga layer peta bertumpuk, semuanya **garis tanpa fill**: `done` (biru, ikhtisar lahan teranalisa), `parcel` (kuning, lahan terpilih), `trees` (titik merah, radius ikut skala zoom). Layer `done-fill` tetap ada dengan `fill-opacity: 0` — tidak terlihat, tapi itulah yang menangkap klik poligon.
-- **Legenda di kanan atas peta** menyalakan/mematikan tiap layer lewat `setLayoutProperty(..., 'visibility', ...)`. Mematikan "Lahan teranalisa" ikut mematikan `done-fill`, supaya klik tidak nyasar ke poligon yang tak terlihat.
+- **Legenda di kanan atas peta** menyalakan/mematikan tiap layer lewat `setLayoutProperty(..., 'visibility', ...)`. Mematikan "Lahan teranalisa" ikut mematikan `done-fill`, supaya klik tidak nyasar ke poligon yang tak terlihat. Kontrol zoom bawaan dipindah ke kanan bawah agar tidak menutupi legenda.
+- **Pilihan peta dasar** di legenda: Google Satellite (default, 0,30 m/px) atau Esri World Imagery (0,60 m/px). Keduanya dimuat sebagai layer raster sekaligus dan dipilih lewat visibility — bukan ganti style — supaya layer analisa di atasnya tidak perlu dibangun ulang.
+
+  > Peta dasar Google dipakai **hanya untuk tampilan** di dashboard. Analisa (`mla/imagery.py`) tetap mengambil citra dari Esri. Perlu dicatat bahwa mengakses tile Google di luar Google Maps Platform resmi tidak sesuai ToS-nya; untuk produksi, pakai penyedia berlisensi.
 - Peta di-inisialisasi di sekitar Riau (`center [100.7, 0.82]`, zoom 9).
 - Poligon persil dirender dari respons `GET /api/parcel/{pk}` (GeoJSON Feature) ke satu source `parcel` dengan layer `fill` + `line`.
 - Bounding box dihitung sendiri di klien (`bboxOf`) dari koordinat `Polygon`/`MultiPolygon` karena GeoJSON dari prod tidak membawa `bbox`.
