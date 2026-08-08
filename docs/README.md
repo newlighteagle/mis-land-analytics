@@ -20,7 +20,8 @@ Dokumentasi dipecah atomic — satu file, satu topik. Mulai dari ikhtisar, lalu 
 | [11-roadmap.md](11-roadmap.md) | Rencana modul berikutnya |
 | [12-modul-tree-detect.md](12-modul-tree-detect.md) | Deteksi per pohon dari citra — metode & hasil evaluasi (gagal, disimpan sebagai catatan) |
 | [13-modul-tree-grid.md](13-modul-tree-grid.md) | **Peta pohon via fitting kisi tanam** — metode yang dipakai dashboard |
-| [14-sumber-citra.md](14-sumber-citra.md) | Sumber citra (Google → Esri), cache tile, dan catatan lisensi |
+| [14-sumber-citra.md](14-sumber-citra.md) | Sumber citra (Google), cache tile, dan catatan lisensi |
+| [15-evaluasi-model.md](15-evaluasi-model.md) | **Kerangka evaluasi & riwayat model** — metrik akurasi posisi titik vs pusat tajuk |
 
 ## Peta file kode
 
@@ -32,7 +33,9 @@ mla/tree_count.py     Modul analisa #1: tree counting (baseline kerapatan)
 mla/tree_detect.py    Deteksi per pohon dari citra (gagal, lihat doc 12)
 mla/tree_grid.py      Peta pohon via fitting kisi tanam (dipakai dashboard)
 mla/imagery.py        Pengambil & mosaik tile citra (Google -> Esri), dengan cache
+mla/crown.py          Detektor pusat tajuk (FRST dll.) + metrik akurasi posisi
 batch_analyze.py      Analisa kisi untuk semua lahan dalam satu lembaga tani
+eval_models.py        Bandingkan varian detektor, catat ke analytics.model_run
 sql/001_init.sql      Schema hasil analisa (mis_analytics)
 sql/002_tree_points.sql  Tabel titik per pohon (analytics.tree)
 static/index.html     Dashboard MapLibre (satu file, tanpa build step)
