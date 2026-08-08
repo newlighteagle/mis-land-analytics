@@ -123,6 +123,8 @@
       <span class="dot"></span> Titik pohon</label>
     <hr>
     <h3>Titik pohon</h3>
+    <label><input type="checkbox" id="catUnknown" checked>
+      <span class="dot" style="background:#FFFFFF"></span> Belum dikategorikan <span class="muted" id="nUnknown"></span></label>
     <label><input type="checkbox" id="catSehat" checked>
       <span class="dot" style="background:#00E5FF"></span> Sehat <span class="muted" id="nSehat"></span></label>
     <label><input type="checkbox" id="catLemah" checked>
@@ -168,11 +170,6 @@
       <dl id="attrs"></dl>
       <div class="card" id="summaryCard" hidden>
         <h2>Ringkasan pohon</h2>
-        <div id="versionPick" hidden>
-          <label class="muted" for="modelVersion">Versi model</label>
-          <select id="modelVersion"></select>
-          <div id="versionInfo" class="muted"></div>
-        </div>
         <div id="summary"></div>
         <div id="editBox">
           <button id="editToggle">✏️ Mode registrasi titik</button>
@@ -271,7 +268,8 @@ map.on('load', () => {
   map.addLayer({ id: 'trees', type: 'circle', source: 'trees',
     paint: {
       'circle-color': ['match', ['get', 'category'],
-        'sehat', '#00E5FF', 'lemah', '#FFD400', 'kosong', '#FF1744', '#00E5FF'],
+        'unknown', '#FFFFFF', 'sehat', '#00E5FF',
+        'lemah', '#FFD400', 'kosong', '#FF1744', '#FFFFFF'],
       'circle-opacity': 0.95,
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4, 20, 8],
       // titik hasil koreksi manusia bergaris tepi putih agar mudah dibedakan
@@ -282,6 +280,8 @@ map.on('load', () => {
     if (editMode) return;
     const f = e.features[0], p = f.properties;
     const meta = {
+      unknown: ['#FFFFFF', 'Belum dikategorikan',
+                'Tahap ini hanya memastikan lokasi pohon; kategori ditentukan menyusul'],
       sehat:  ['#00E5FF', 'Sehat', 'Mahkota terdeteksi jelas dan rimbun'],
       lemah:  ['#FFD400', 'Lemah', 'Mahkota terdeteksi tapi lebih pucat dari sekitarnya'],
       kosong: ['#FF1744', 'Kosong / mati', 'Tidak ada mahkota di posisi tanam ini'],
@@ -337,9 +337,10 @@ $('panelToggle').addEventListener('click', () => {
 
 // ---------- legenda ----------
 const CAT = [
-  ['sehat',  '#00E5FF', 'Sehat',         'catSehat',  'nSehat'],
-  ['lemah',  '#FFD400', 'Lemah',         'catLemah',  'nLemah'],
-  ['kosong', '#FF1744', 'Kosong / mati', 'catKosong', 'nKosong'],
+  ['unknown', '#FFFFFF', 'Belum dikategorikan', 'catUnknown', 'nUnknown'],
+  ['sehat',   '#00E5FF', 'Sehat',               'catSehat',   'nSehat'],
+  ['lemah',   '#FFD400', 'Lemah',               'catLemah',   'nLemah'],
+  ['kosong',  '#FF1744', 'Kosong / mati',       'catKosong',  'nKosong'],
 ];
 
 function wireLegend() {
@@ -510,36 +511,12 @@ async function loadHistory() {
     : 'Belum ada.';
 }
 
-// ---------- versi model ----------
-let versions = [];
-
-async function loadVersions() {
-  versions = await (await fetch(`/api/parcel/${currentPk}/versions`)).json();
-  const sel = $('modelVersion');
-  $('versionPick').hidden = versions.length < 1;
-  sel.innerHTML = versions.map(v =>
-    `<option value="${v.model_version}">${v.model_version} — ${v.n_points} titik</option>`).join('');
-  if (versions.length) sel.value = versions[0].model_version;
-  showVersionInfo();
-}
-
-function showVersionInfo() {
-  const v = versions.find(x => x.model_version === $('modelVersion').value);
-  $('versionInfo').innerHTML = v ? [
-    v.detector ? `detektor ${v.detector}` : null,
-    v.match_rate != null ? `cocok ke tajuk ${(v.match_rate * 100).toFixed(0)}%` : null,
-  ].filter(Boolean).join(' · ') : '';
-}
-
-$('modelVersion').addEventListener('change', () => { showVersionInfo(); loadTrees(); });
-
 // ---------- titik pohon ----------
 let treeFC = empty();
 
 async function loadTrees() {
-  const v = $('modelVersion').value;
-  const url = `/api/parcel/${currentPk}/trees` + (v ? `?version=${encodeURIComponent(v)}` : '');
-  treeFC = await (await fetch(url)).json();
+  // tanpa parameter versi: server memakai versi terbaru untuk lahan ini
+  treeFC = await (await fetch(`/api/parcel/${currentPk}/trees`)).json();
   map.getSource('trees').setData(treeFC);
   renderSummary(treeFC.features);
   return treeFC.features.length;
@@ -561,8 +538,8 @@ function renderSummary(features) {
         <b style="float:right">${k} <span class="muted">(${pct}%)</span></b>
         <span class="bar"><i style="width:${pct}%;background:${color}"></i></span></div>`;
     }).join('') +
-    `<div class="muted" style="margin-top:8px">Kategori dari kehijauan mahkota, <b>relatif</b>
-     antar pohon di lahan ini — bukan diagnosis penyakit.</div>`;
+    `<div class="muted" style="margin-top:8px">Tahap registrasi hanya memastikan <b>lokasi</b>
+     pohon. Kategori sehat/lemah/kosong ditentukan setelah posisinya benar.</div>`;
   if (editMode) refreshTrees();
 }
 
@@ -624,15 +601,14 @@ map.on('click', async e => {
   if (!editMode || !currentPk) return;
   const hit = map.queryRenderedFeatures(e.point, { layers: ['trees'] });
   if (hit.length) { selectedId = hit[0].properties.id; $('delPoint').hidden = false; return; }
-  const body = { lon: e.lngLat.lng, lat: e.lngLat.lat, category: 'sehat' };
-  const r = await (await fetch(
-    `/api/parcel/${currentPk}/trees?version=${encodeURIComponent($('modelVersion').value)}`, {
+  const body = { lon: e.lngLat.lng, lat: e.lngLat.lat, category: 'unknown' };
+  const r = await (await fetch(`/api/parcel/${currentPk}/trees`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })).json();
   treeFC.features.push({
     type: 'Feature',
-    properties: { id: r.id, no: treeFC.features.length + 1, category: 'sehat',
+    properties: { id: r.id, no: treeFC.features.length + 1, category: 'unknown',
                   source: 'added', score: null, lon: body.lon, lat: body.lat },
     geometry: { type: 'Point', coordinates: [body.lon, body.lat] },
   });

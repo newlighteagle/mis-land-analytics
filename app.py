@@ -348,7 +348,7 @@ def add_tree(pk: str, req: TreePoint, method: str = tree_grid.METHOD,
                  (land_parcel_pk, method, model_version, geom, category, source, edited_at)
                VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, 'added', now())
                RETURNING id""",
-            (pk, method, version, req.lon, req.lat, req.category or "sehat"),
+            (pk, method, version, req.lon, req.lat, req.category or "unknown"),
         )
         row = cur.fetchone()
         local.commit()

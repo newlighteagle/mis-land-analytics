@@ -43,7 +43,13 @@ MATCH_RADIUS = 0.40    # toleransi pencocokan titik kisi <-> kandidat, x jarak t
 # menghasilkan proporsi tetap (10% terbawah selalu 10%), sehingga kebun seragam
 # sehat dan kebun banyak kosong akan tampak sama persis.
 CAT_WEAK_MAD = 2.0
-CATEGORIES = ("kosong", "lemah", "sehat")
+CATEGORIES = ("unknown", "kosong", "lemah", "sehat")
+
+# Draf sengaja TIDAK dikategorikan. Tahap registrasi hanya memastikan lokasi
+# pohon; menilai sehat/lemah/kosong dari citra sebelum posisinya benar hanya
+# menyebarkan kesalahan posisi ke dalam angka kesehatan. Skor vigor tetap
+# dihitung dan disimpan supaya bisa dipakai saat tahap kategorisasi nanti.
+DRAFT_CATEGORY = "unknown"
 
 # Rentang jarak tanam sawit yang lazim di lapangan (SPH ~110-180). Di luar ini
 # biasanya basis kisi yang terpilih bukan yang primitif — mis. diagonal kisi
@@ -385,7 +391,8 @@ def fit(prod, local, ident: str) -> dict:
     nodes, score = fit_phase_local(mask, lat, cand, match_px)
     pts, hit, dist = union_points(nodes, cand, mask, match_px)
 
-    vigor, categories = classify(pts, hit, green, mask)
+    vigor, _auto_cat = classify(pts, hit, green, mask)
+    categories = [DRAFT_CATEGORY] * len(_auto_cat)
     match_rate = float(hit.mean()) if len(hit) else 0.0
     median_offset_m = float(np.median(dist[hit]) * mpp) if hit.any() else None
     area_ha = float(parcel["area"])
