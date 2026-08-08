@@ -16,11 +16,16 @@
   .modes { display: flex; gap: 4px; margin-bottom: 8px; }
   .modes button { flex: 1; background: #eee; color: #333; font-size: 13px; padding: 7px 0; }
   .modes button.active { background: #2d6a4f; color: #fff; }
-  .hits { list-style: none; margin-top: 4px; max-height: 260px; overflow-y: auto; }
-  .hits li { padding: 6px 8px; cursor: pointer; border-radius: 4px; }
+  .hits { list-style: none; margin-top: 4px; }
+  .hits li { padding: 7px 8px; cursor: pointer; border-radius: 4px; }
   .hits li:hover { background: #e8f0e8; }
   .hits .sub { color: #666; font-size: 12px; }
   .empty { color: #888; font-size: 12px; padding: 6px 8px; }
+  .bar { height: 5px; background: #e4e4e4; border-radius: 3px; margin-top: 5px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: #2d6a4f; }
+  .pct { float: right; color: #2d6a4f; font-weight: 600; font-size: 12px; }
+  .back { display: inline-block; margin-bottom: 8px; color: #2d6a4f; cursor: pointer; font-size: 13px; }
+  .back:hover { text-decoration: underline; }
   #detail { margin-top: 16px; display: none; }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; }
   dt { color: #666; }
@@ -39,33 +44,48 @@
 <div id="panel">
   <h1>🌴 MIS Land Analytics</h1>
   <div class="modes">
-    <button id="modeNew" class="active">Belum dianalisa</button>
-    <button id="modeDone">Sudah dianalisa</button>
+    <button id="menuHasil" class="active">Hasil analisa</button>
+    <button id="menuAnalisa">Analisa baru</button>
   </div>
-  <div id="paneNew">
+
+  <!-- Menu 1: telusuri hasil per lembaga tani -->
+  <div id="paneHasil">
+    <div id="groupView">
+      <input type="text" id="qGroup" placeholder="Cari lembaga tani…" autocomplete="off">
+      <ul id="groupList" class="hits"><li class="empty">Memuat…</li></ul>
+    </div>
+    <div id="parcelView" hidden>
+      <span class="back" id="backGroups">← Semua lembaga tani</span>
+      <div id="groupHead"></div>
+      <ul id="groupParcels" class="hits"></ul>
+    </div>
+  </div>
+
+  <!-- Menu 2: pilih lahan yang belum dianalisa lalu jalankan analisa -->
+  <div id="paneAnalisa" hidden>
     <input type="search" id="q" placeholder="Cari ID lahan atau nama petani…" autocomplete="off">
     <ul id="hits" class="hits"></ul>
   </div>
-  <div id="paneDone" hidden>
-    <input type="text" id="qDone" placeholder="Pilih / cari persil yang sudah dianalisa…" autocomplete="off">
-    <ul id="hitsDone" class="hits"></ul>
-  </div>
+
   <div id="detail">
     <dl id="attrs"></dl>
     <div class="card">
-      <h2>Tree count</h2>
-      <div>SPH <input type="number" id="sph" value="136" min="50" max="200"> pohon/ha
-        <button id="run">Hitung (baseline)</button></div>
-      <div id="tcResult"></div>
-    </div>
-    <div class="card">
-      <h2>Peta pohon (kisi tanam)</h2>
-      <button id="runGrid">Petakan pohon dari citra</button>
-      <div id="gridResult"></div>
-    </div>
-    <div class="card">
-      <h2>Riwayat hasil</h2>
+      <h2>Hasil analisa</h2>
       <div id="history" class="muted">Belum ada.</div>
+    </div>
+    <!-- alat analisa hanya tampil di menu "Analisa baru" -->
+    <div id="tools" hidden>
+      <div class="card">
+        <h2>Tree count (baseline)</h2>
+        <div>SPH <input type="number" id="sph" value="136" min="50" max="200"> pohon/ha
+          <button id="run">Hitung</button></div>
+        <div id="tcResult"></div>
+      </div>
+      <div class="card">
+        <h2>Peta pohon (kisi tanam)</h2>
+        <button id="runGrid">Petakan pohon dari citra</button>
+        <div id="gridResult"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -89,13 +109,8 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl());
 
 map.on('load', () => {
-  map.addSource('parcel', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({ id: 'parcel-fill', type: 'fill', source: 'parcel',
-    paint: { 'fill-color': '#ffd60a', 'fill-opacity': 0.15 } });
-  map.addLayer({ id: 'parcel-line', type: 'line', source: 'parcel',
-    paint: { 'line-color': '#ffd60a', 'line-width': 2.5 } });
-  // ikhtisar semua persil yang sudah dianalisa (mode "Sudah dianalisa")
-  map.addSource('done', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  // ikhtisar lahan teranalisa (biru) — digambar di bawah persil terpilih
+  map.addSource('done', { type: 'geojson', data: empty() });
   map.addLayer({ id: 'done-fill', type: 'fill', source: 'done',
     paint: { 'fill-color': '#4cc9f0', 'fill-opacity': 0.25 } });
   map.addLayer({ id: 'done-line', type: 'line', source: 'done',
@@ -103,7 +118,14 @@ map.on('load', () => {
   map.on('click', 'done-fill', e => selectParcel(e.features[0].properties.id));
   map.on('mouseenter', 'done-fill', () => map.getCanvas().style.cursor = 'pointer');
   map.on('mouseleave', 'done-fill', () => map.getCanvas().style.cursor = '');
-  map.addSource('trees', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+  map.addSource('parcel', { type: 'geojson', data: empty() });
+  map.addLayer({ id: 'parcel-fill', type: 'fill', source: 'parcel',
+    paint: { 'fill-color': '#ffd60a', 'fill-opacity': 0.15 } });
+  map.addLayer({ id: 'parcel-line', type: 'line', source: 'parcel',
+    paint: { 'line-color': '#ffd60a', 'line-width': 2.5 } });
+
+  map.addSource('trees', { type: 'geojson', data: empty() });
   map.addLayer({ id: 'trees', type: 'circle', source: 'trees',
     paint: {
       'circle-color': '#ff4d4d',
@@ -112,12 +134,94 @@ map.on('load', () => {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 17, 3, 20, 6],
       'circle-stroke-color': '#fff', 'circle-stroke-width': 0.5,
     } });
+  loadGroups();
 });
 
 const $ = id => document.getElementById(id);
-let currentPk = null, timer = null, analyzed = [];
+const empty = () => ({ type: 'FeatureCollection', features: [] });
+let currentPk = null, currentGroup = null, groups = [], timer = null;
 
-// --- Mode "Belum dianalisa": pencarian penuh ke database, hasil analisa dikecualikan
+// ---------- Menu ----------
+for (const [btn, other, pane, otherPane] of [
+  ['menuHasil', 'menuAnalisa', 'paneHasil', 'paneAnalisa'],
+  ['menuAnalisa', 'menuHasil', 'paneAnalisa', 'paneHasil'],
+]) {
+  $(btn).addEventListener('click', () => {
+    $(btn).classList.add('active');
+    $(other).classList.remove('active');
+    $(pane).hidden = false;
+    $(otherPane).hidden = true;
+    $('tools').hidden = btn !== 'menuAnalisa';   // alat analisa hanya di menu Analisa
+    if (btn === 'menuHasil') loadGroups();
+  });
+}
+
+// ---------- Menu "Hasil analisa": daftar lembaga tani ----------
+async function loadGroups() {
+  groups = await (await fetch('/api/groups')).json();
+  renderGroups($('qGroup').value.trim().toLowerCase());
+  if (currentGroup) showOverview(currentGroup.id, false);
+}
+
+function renderGroups(needle = '') {
+  const rows = needle ? groups.filter(g => g.name.toLowerCase().includes(needle)) : groups;
+  $('groupList').innerHTML = rows.length ? rows.map(g => `
+    <li data-gid="${g.id}">
+      <span class="pct">${g.pct}%</span><b>${g.name}</b><br>
+      <span class="sub">${g.analyzed} / ${g.total} lahan teranalisa · ${g.total_area.toFixed(0)} ha</span>
+      <span class="bar"><i style="width:${Math.max(g.pct, g.analyzed ? 1.5 : 0)}%"></i></span>
+    </li>`).join('') : '<li class="empty">Tidak ada lembaga yang cocok.</li>';
+}
+
+$('qGroup').addEventListener('input', () => renderGroups($('qGroup').value.trim().toLowerCase()));
+
+$('groupList').addEventListener('click', e => {
+  const li = e.target.closest('li[data-gid]');
+  if (li) openGroup(groups.find(g => g.id === li.dataset.gid));
+});
+
+$('backGroups').addEventListener('click', () => {
+  currentGroup = null;
+  $('parcelView').hidden = true;
+  $('groupView').hidden = false;
+  $('detail').style.display = 'none';
+  currentPk = null;
+  map.getSource('parcel').setData(empty());
+  map.getSource('trees').setData(empty());
+  showOverview(null, true);
+});
+
+async function openGroup(g) {
+  if (!g) return;
+  currentGroup = g;
+  $('groupView').hidden = true;
+  $('parcelView').hidden = false;
+  $('groupHead').innerHTML = `<b>${g.name}</b><br>
+    <span class="sub">${g.analyzed} dari ${g.total} lahan sudah dianalisa (${g.pct}%)</span>`;
+  $('groupParcels').innerHTML = '<li class="empty">Memuat…</li>';
+  const rows = await (await fetch(`/api/group/${encodeURIComponent(g.id)}/parcels?status=done`)).json();
+  $('groupParcels').innerHTML = rows.length ? rows.map(r => {
+    const hasil = r.trees_grid != null
+      ? `🌴 ${r.trees_grid} pohon · ${r.sph_grid} SPH terukur`
+      : `🌴 ${r.trees_baseline ?? '-'} pohon (baseline)`;
+    return `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
+      <span class="sub">${r.farmer_name} · ${(+r.area).toFixed(2)} ha<br>${hasil}</span></li>`;
+  }).join('') : '<li class="empty">Belum ada lahan yang dianalisa di lembaga ini.</li>';
+  showOverview(g.id, true);
+}
+
+async function showOverview(gid, fit) {
+  const url = gid ? `/api/analyzed/geojson?group=${encodeURIComponent(gid)}` : '/api/analyzed/geojson';
+  const fc = await (await fetch(url)).json();
+  map.getSource('done').setData(fc);
+  if (!fit || !fc.features.length) return;
+  const pts = fc.features.flatMap(f => f.geometry.coordinates.flat(f.geometry.type === 'MultiPolygon' ? 2 : 1));
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]],
+                { padding: 60, maxZoom: 15 });
+}
+
+// ---------- Menu "Analisa baru": cari lahan yang belum dianalisa ----------
 $('q').addEventListener('input', () => {
   clearTimeout(timer);
   timer = setTimeout(async () => {
@@ -127,65 +231,18 @@ $('q').addEventListener('input', () => {
     $('hits').innerHTML = rows.length ? rows.map(r =>
       `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
        <span class="sub">${r.farmer_name} · ${(+r.area).toFixed(2)} ha · ${r.crop_type ?? '-'}</span></li>`).join('')
-      : '<li class="empty">Tidak ada persil belum dianalisa yang cocok.</li>';
+      : '<li class="empty">Tidak ada lahan belum dianalisa yang cocok.</li>';
   }, 250);
 });
 
-// --- Mode "Sudah dianalisa": select box yang bisa dicari (daftar kecil, difilter di klien)
-async function loadAnalyzed() {
-  analyzed = await (await fetch('/api/analyzed')).json();
-  renderAnalyzed($('qDone').value.trim().toLowerCase());
-  if (!$('paneDone').hidden) showDoneOverview(true);
-}
-
-function renderAnalyzed(needle = '') {
-  const rows = needle
-    ? analyzed.filter(r => (r.parcel_id + ' ' + (r.farmer_name ?? '')).toLowerCase().includes(needle))
-    : analyzed;
-  $('hitsDone').innerHTML = rows.length ? rows.map(r => {
-    const hasil = r.trees_grid != null
-      ? `🌴 ${r.trees_grid} pohon · ${r.sph_grid} SPH terukur`
-      : `🌴 ${r.trees_baseline} pohon (baseline)`;
-    return `<li data-pk="${r.id}"><b>${r.parcel_id}</b><br>
-     <span class="sub">${r.farmer_name ?? '-'} · ${r.area != null ? r.area.toFixed(2) + ' ha' : ''}<br>${hasil}</span></li>`;
-  }).join('')
-    : `<li class="empty">${analyzed.length ? 'Tidak ada yang cocok.' : 'Belum ada persil yang dianalisa.'}</li>`;
-}
-
-async function showDoneOverview(on) {
-  if (!on) { map.getSource('done').setData({ type: 'FeatureCollection', features: [] }); return; }
-  const fc = await (await fetch('/api/analyzed/geojson')).json();
-  map.getSource('done').setData(fc);
-  if (!fc.features.length || currentPk) return;
-  const pts = fc.features.flatMap(f => f.geometry.coordinates.flat(f.geometry.type === 'MultiPolygon' ? 2 : 1));
-  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]],
-                { padding: 50, maxZoom: 14 });
-}
-
-$('qDone').addEventListener('input', () => renderAnalyzed($('qDone').value.trim().toLowerCase()));
-
-for (const [btn, other, pane, otherPane] of [
-  ['modeNew', 'modeDone', 'paneNew', 'paneDone'],
-  ['modeDone', 'modeNew', 'paneDone', 'paneNew'],
-]) {
-  $(btn).addEventListener('click', () => {
-    $(btn).classList.add('active');
-    $(other).classList.remove('active');
-    $(pane).hidden = false;
-    $(otherPane).hidden = true;
-    if (btn === 'modeDone') loadAnalyzed();
-    showDoneOverview(btn === 'modeDone');
-  });
-}
-
-for (const id of ['hits', 'hitsDone']) {
+for (const id of ['hits', 'groupParcels']) {
   $(id).addEventListener('click', e => {
     const li = e.target.closest('li[data-pk]');
     if (li) selectParcel(li.dataset.pk);
   });
 }
 
+// ---------- Detail satu lahan ----------
 async function selectParcel(pk) {
   currentPk = pk;
   const f = await (await fetch(`/api/parcel/${pk}`)).json();
@@ -215,9 +272,10 @@ function bboxOf(g) {
 async function loadHistory() {
   const rows = await (await fetch(`/api/parcel/${currentPk}/results`)).json();
   $('history').innerHTML = rows.length
-    ? `<table><tr><th>Metode</th><th>Pohon</th><th>SPH</th><th>Kapan</th></tr>` +
+    ? `<table><tr><th>Metode</th><th>Pohon</th><th>SPH</th><th>Conf</th><th>Kapan</th></tr>` +
       rows.map(r => `<tr><td>${r.method}</td><td>${r.tree_count}</td>
-        <td>${r.sph_used ?? '-'}</td><td>${r.computed_at.slice(0, 16).replace('T', ' ')}</td></tr>`).join('') + '</table>'
+        <td>${r.sph_used ?? '-'}</td><td>${r.confidence}</td>
+        <td>${r.computed_at.slice(0, 10)}</td></tr>`).join('') + '</table>'
     : 'Belum ada.';
 }
 
@@ -227,6 +285,7 @@ async function loadTrees() {
   return fc.features.length;
 }
 
+// ---------- Menjalankan analisa (hanya dari menu "Analisa baru") ----------
 $('runGrid').addEventListener('click', async () => {
   if (!currentPk) return;
   $('runGrid').disabled = true;
@@ -239,13 +298,14 @@ $('runGrid').addEventListener('click', async () => {
       return;
     }
     const p = r.params;
+    const warn = p.warnings?.length
+      ? `<div class="muted">⚠️ ${p.warnings.join('; ')} — periksa dulu sebelum dipakai.</div>` : '';
     $('gridResult').innerHTML = `<div class="big">${r.tree_count.toLocaleString('id')} titik pohon</div>
       <div class="muted">jarak tanam ${p.spacing_a1_m} × ${p.spacing_a2_m} m · arah baris ${p.row_angle_deg}° ·
-      ${p.sph_from_lattice} SPH terukur · citra z${p.zoom} (${p.meters_per_pixel} m/px)</div>
+      ${p.sph_from_lattice} SPH terukur · citra z${p.zoom} (${p.meters_per_pixel} m/px)</div>${warn}
       <div class="muted" style="margin-top:6px">Posisi <b>model</b> dari kisi tanam terukur, bukan deteksi tiap pohon.</div>`;
     await loadTrees();
     loadHistory();
-    loadAnalyzed();
   } finally { $('runGrid').disabled = false; }
 });
 
@@ -261,7 +321,6 @@ $('run').addEventListener('click', async () => {
       <div class="muted">${r.area_ha.toFixed(2)} ha × ${r.sph_used} SPH · metode ${r.model_version} ·
       confidence ${r.confidence}</div>`;
     loadHistory();
-    loadAnalyzed();   // persil ini kini pindah ke daftar "sudah dianalisa"
   } finally { $('run').disabled = false; }
 });
 </script>

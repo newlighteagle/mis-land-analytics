@@ -31,6 +31,23 @@ Filternya lintas-database: daftar PK yang sudah dianalisa diambil dari `mis_anal
 ]
 ```
 
+### `GET /api/groups`
+
+Daftar lembaga tani beserta progres cakupan analisa — sumber tingkat 1 di dashboard. Petani tanpa kelompok dikumpulkan di bawah id sentinel `_none`.
+
+```json
+[
+  { "id": "cm...", "name": "KUD Intan Makmur", "total": 317,
+    "analyzed": 2, "pct": 0.6, "total_area": 619.1 }
+]
+```
+
+Terurut: yang paling banyak dianalisa dulu, lalu menurut jumlah lahan.
+
+### `GET /api/group/{gid}/parcels?status=<done|new|all>`
+
+Lahan dalam satu lembaga (maks. 500), default `status=done`. Untuk `done`, tiap baris diperkaya ringkasan hasil (`trees_grid`, `sph_grid`, `trees_baseline`, `last_computed`) dari DB lokal.
+
 ### `GET /api/analyzed`
 
 Semua persil yang sudah punya hasil analisa, terurut waktu analisa terbaru. Dipakai dashboard untuk mengisi select box mode *"Sudah dianalisa"* — dikirim sekaligus (jumlahnya kecil) lalu difilter di klien, jadi tidak ada round-trip per ketikan.
@@ -42,6 +59,10 @@ Semua persil yang sudah punya hasil analisa, terurut waktu analisa terbaru. Dipa
     "n_methods": 1, "last_computed": "2026-08-08T14:13:38+07:00" }
 ]
 ```
+
+### `GET /api/analyzed/geojson?group=<gid>`
+
+Poligon lahan teranalisa sebagai GeoJSON FeatureCollection, dipakai dashboard sebagai layer ikhtisar biru. `group` opsional membatasi ke satu lembaga (`_none` untuk tanpa kelompok); `properties` tiap feature berisi ringkasan yang sama dengan `/api/analyzed`.
 
 ### `GET /api/parcel/{pk}`
 

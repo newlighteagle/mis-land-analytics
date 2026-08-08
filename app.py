@@ -106,16 +106,128 @@ def analyzed():
     return out
 
 
+NO_GROUP = "_none"   # sentinel untuk petani tanpa kelompok
+
+
+@app.get("/api/groups")
+def groups():
+    """Lembaga tani + progres cakupan analisa (lahan teranalisa / total)."""
+    with local_conn() as local:
+        analyzed = _analyzed_pks(local)
+    with prod_conn() as prod, prod.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """SELECT COALESCE(g.id, %s) AS id, COALESCE(g.name, 'Tanpa kelompok') AS name,
+                      count(p.id) AS total, sum(p.area) AS total_area
+               FROM tbl_land_parcel p
+               JOIN tbl_farmer f ON f.id = p.farmer_id
+               LEFT JOIN tbl_farmer_group g ON g.id = f.farmer_group_id
+               WHERE p.is_active
+               GROUP BY 1, 2""",
+            (NO_GROUP,),
+        )
+        rows = cur.fetchall()
+        done = {}
+        if analyzed:
+            cur.execute(
+                """SELECT COALESCE(g.id, %s) AS id, count(p.id) AS n
+                   FROM tbl_land_parcel p
+                   JOIN tbl_farmer f ON f.id = p.farmer_id
+                   LEFT JOIN tbl_farmer_group g ON g.id = f.farmer_group_id
+                   WHERE p.is_active AND p.id = ANY(%s)
+                   GROUP BY 1""",
+                (NO_GROUP, analyzed),
+            )
+            done = {r["id"]: r["n"] for r in cur.fetchall()}
+    out = []
+    for r in rows:
+        n = done.get(r["id"], 0)
+        out.append({
+            "id": r["id"], "name": r["name"],
+            "total": r["total"], "analyzed": n,
+            "pct": round(n / r["total"] * 100, 1) if r["total"] else 0.0,
+            "total_area": float(r["total_area"]) if r["total_area"] is not None else 0.0,
+        })
+    # yang sudah ada progresnya di atas, sisanya menurut jumlah lahan
+    out.sort(key=lambda r: (-r["analyzed"], -r["total"]))
+    return out
+
+
+@app.get("/api/group/{gid}/parcels")
+def group_parcels(gid: str, status: str = "done"):
+    """Lahan dalam satu lembaga tani, disaring status analisanya."""
+    with local_conn() as local:
+        analyzed = _analyzed_pks(local)
+    if status == "done" and not analyzed:
+        return []
+    clause = ""
+    params: list = []
+    if gid == NO_GROUP:
+        clause_group = "f.farmer_group_id IS NULL"
+    else:
+        clause_group = "f.farmer_group_id = %s"
+        params.append(gid)
+    if status == "done":
+        clause = "AND p.id = ANY(%s)"
+        params.append(analyzed)
+    elif status == "new":
+        clause = "AND NOT (p.id = ANY(%s))"
+        params.append(analyzed)
+    with prod_conn() as prod, prod.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"""SELECT p.id, p.parcel_id, p.area, f.name AS farmer_name
+                FROM tbl_land_parcel p
+                JOIN tbl_farmer f ON f.id = p.farmer_id
+                WHERE p.is_active AND {clause_group} {clause}
+                ORDER BY p.parcel_id LIMIT 500""",
+            params,
+        )
+        rows = cur.fetchall()
+    if status != "done":
+        return rows
+    with local_conn() as local, local.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """SELECT land_parcel_pk,
+                      max(tree_count) FILTER (WHERE method = 'grid_fit') AS trees_grid,
+                      max(sph_used)   FILTER (WHERE method = 'grid_fit') AS sph_grid,
+                      max(tree_count) FILTER (WHERE method = 'baseline_density') AS trees_baseline,
+                      max(computed_at) AS last_computed
+               FROM analytics.tree_count WHERE land_parcel_pk = ANY(%s)
+               GROUP BY land_parcel_pk""",
+            ([r["id"] for r in rows],),
+        )
+        res = {r["land_parcel_pk"]: r for r in cur.fetchall()}
+    for r in rows:
+        m = res.get(r["id"], {})
+        r["trees_grid"] = m.get("trees_grid")
+        r["sph_grid"] = float(m["sph_grid"]) if m.get("sph_grid") is not None else None
+        r["trees_baseline"] = m.get("trees_baseline")
+        r["last_computed"] = m["last_computed"].isoformat() if m.get("last_computed") else None
+    return rows
+
+
 @app.get("/api/analyzed/geojson")
-def analyzed_geojson():
-    """Poligon semua persil yang sudah dianalisa — layer ikhtisar di peta."""
+def analyzed_geojson(group: str | None = None):
+    """Poligon persil yang sudah dianalisa — layer ikhtisar di peta.
+
+    `group` opsional: batasi ke satu lembaga tani (pakai sentinel `_none`
+    untuk petani tanpa kelompok).
+    """
     summary = {r["id"]: r for r in analyzed()}
     if not summary:
         return {"type": "FeatureCollection", "features": []}
+    params: list = [list(summary)]
+    clause = ""
+    if group == NO_GROUP:
+        clause = "AND f.farmer_group_id IS NULL"
+    elif group:
+        clause = "AND f.farmer_group_id = %s"
+        params.append(group)
     with prod_conn() as prod, prod.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT id, geometry FROM tbl_land_parcel WHERE id = ANY(%s)",
-            (list(summary),),
+            f"""SELECT p.id, p.geometry FROM tbl_land_parcel p
+                JOIN tbl_farmer f ON f.id = p.farmer_id
+                WHERE p.id = ANY(%s) {clause}""",
+            params,
         )
         rows = cur.fetchall()
     return {

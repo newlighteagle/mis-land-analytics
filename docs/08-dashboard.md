@@ -10,27 +10,42 @@ Dashboard spasial satu file (HTML + CSS + JS, tanpa build step). Peta **MapLibre
 
 lalu buka **http://localhost:8008**. Butuh internet (MapLibre dimuat dari unpkg CDN, tile basemap dari server Esri) dan koneksi ke kedua database.
 
-## Dua mode pemilihan persil
+## Dua menu
 
-Tombol di atas kotak pencarian memilih mode:
+Panel dipisah menurut pekerjaannya: **melihat hasil** vs **menjalankan analisa**. Alat analisa (tombol hitung) hanya muncul di menu kedua, supaya menelusuri hasil tidak tercampur dengan menjalankan proses.
 
-| Mode | Perilaku |
-|---|---|
-| **Belum dianalisa** (default) | Pencarian penuh ke database prod, ketik ≥3 karakter ID lahan atau nama petani (debounce 250 ms, maks. 20 hasil). Persil yang sudah punya hasil analisa **dikecualikan** — jadi daftar ini adalah antrean kerja. |
-| **Sudah dianalisa** | Select box yang bisa dicari: seluruh daftar persil yang pernah dianalisa dimuat sekali dari `/api/analyzed` lalu difilter di klien saat mengetik. Menampilkan nama petani, luas, jumlah metode, dan tanggal analisa terakhir. Daftar kosong menampilkan "Belum ada persil yang dianalisa." |
+### Menu "Hasil analisa" (default) — telusur per lembaga tani
 
-Setelah menjalankan analisa, daftar "sudah dianalisa" otomatis dimuat ulang sehingga persil itu langsung berpindah mode.
+**Tingkat 1 — daftar lembaga tani.** Semua 27 lembaga tampil beserta progres cakupan analisanya:
+
+```
+KUD Intan Makmur                              0.6%
+2 / 317 lahan teranalisa · 619 ha
+▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+```
+
+Terurut dari yang paling banyak dianalisa. Kotak di atas menyaring daftar per nama lembaga (difilter di klien).
+
+**Tingkat 2 — lahan dalam satu lembaga.** Klik lembaga untuk melihat daftar lahannya yang **sudah dianalisa**, tiap baris langsung menampilkan hasilnya (jumlah pohon dan SPH terukur). Peta serentak menggambar poligon biru semua lahan teranalisa di lembaga itu dan zoom ke sebarannya; poligonnya bisa diklik langsung. Tautan **← Semua lembaga tani** kembali ke tingkat 1.
+
+**Tingkat 3 — detail lahan.** Klik lahan (dari daftar atau dari peta) untuk melihat atribut, kartu *Hasil analisa*, dan titik pohon.
+
+### Menu "Analisa baru"
+
+Pencarian penuh ke database prod (ketik ≥3 karakter ID lahan atau nama petani, debounce 250 ms, maks. 20 hasil). Lahan yang **sudah** punya hasil dikecualikan, jadi daftar ini berfungsi sebagai antrean kerja. Setelah memilih lahan, dua kartu alat muncul:
+
+- **Tree count (baseline)** — atur SPH (50–200, default 136) lalu **Hitung**. Hasil tampil sebagai `± N pohon`.
+- **Peta pohon (kisi tanam)** — **Petakan pohon dari citra**: sistem mengambil citra, mengukur kisi tanam, lalu menggambar **titik pohon merah** di peta. Kartu menampilkan jumlah titik, jarak tanam, arah baris, SPH terukur, dan peringatan bila hasilnya `confidence: low`. Titik ini **posisi model**, bukan deteksi tiap pohon — lihat [13-modul-tree-grid.md](13-modul-tree-grid.md).
 
 ## Alur pemakaian
 
-1. **Cari / pilih persil** — sesuai mode di atas.
-2. **Klik hasil** — panel menampilkan atribut (petani, kelompok, luas, komoditas, status lahan, blok, PSR); peta menggambar poligon persil (kuning, semi-transparan) dan zoom ke bounding box-nya (maks. zoom 17).
-3. **Analisa** — kartu *Tree count*: atur SPH (input angka, 50–200, default 136) lalu klik **Hitung (baseline)**. Hasil tampil sebagai `± N pohon` beserta luas, SPH, versi metode, dan confidence.
-4. **Peta pohon** — kartu *Peta pohon (kisi tanam)*: klik **Petakan pohon dari citra**. Sistem mengambil citra persil, mengukur kisi tanam, lalu menggambar **titik pohon merah** di peta. Kartu menampilkan jumlah titik, jarak tanam, arah baris, dan SPH terukur. Titik ini adalah **posisi model** dari pola tanam terukur, bukan deteksi tiap pohon — lihat [13-modul-tree-grid.md](13-modul-tree-grid.md).
-5. **Riwayat** — kartu *Riwayat hasil* menampilkan semua hasil tersimpan untuk persil itu (per metode; menjalankan ulang metode yang sama menimpa hasil lamanya — lihat [05-database-mis-analytics.md](05-database-mis-analytics.md)).
+1. **Pilih lembaga tani** → **pilih lahan** dari daftarnya (menu Hasil analisa), atau **cari lahan** yang belum dianalisa (menu Analisa baru).
+2. Panel menampilkan atribut lahan (petani, kelompok, luas, komoditas, status lahan, blok, PSR); peta menggambar poligon lahan (kuning) dan zoom ke bounding box-nya (maks. zoom 17), plus titik pohon merah bila sudah dipetakan.
+3. Kartu **Hasil analisa** menampilkan semua hasil tersimpan untuk lahan itu — metode, jumlah pohon, SPH, confidence, tanggal (per metode; menjalankan ulang metode yang sama menimpa hasil lamanya, lihat [05-database-mis-analytics.md](05-database-mis-analytics.md)).
 
 ## Detail implementasi
 
+- Tiga layer peta bertumpuk: `done` (poligon biru, ikhtisar lahan teranalisa, bisa diklik), `parcel` (poligon kuning, lahan terpilih), `trees` (titik merah, radius ikut skala zoom).
 - Peta di-inisialisasi di sekitar Riau (`center [100.7, 0.82]`, zoom 9).
 - Poligon persil dirender dari respons `GET /api/parcel/{pk}` (GeoJSON Feature) ke satu source `parcel` dengan layer `fill` + `line`.
 - Bounding box dihitung sendiri di klien (`bboxOf`) dari koordinat `Polygon`/`MultiPolygon` karena GeoJSON dari prod tidak membawa `bbox`.
