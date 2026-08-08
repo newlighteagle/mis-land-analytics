@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
-from mla import tree_count, tree_detect, tree_grid
+from mla import tree_count, tree_detect, tree_grid, vigor
 from mla.db import local_conn, prod_conn
 
 app = FastAPI(title="mis-land-analytics")
@@ -328,6 +328,20 @@ def versions(pk: str, method: str = tree_grid.METHOD):
         for k in ("match_rate", "median_offset_m"):
             r[k] = float(r[k]) if r[k] is not None else None
     return rows
+
+
+@app.post("/api/parcel/{pk}/categorize")
+def categorize(pk: str):
+    """Beri label sehat/lemah/kosong pada titik yang sudah diregistrasi."""
+    with prod_conn() as prod, local_conn() as local:
+        try:
+            return vigor.categorize(prod, local, pk)
+        except tree_count.ParcelNotFound:
+            raise HTTPException(404, "Persil tidak ditemukan")
+        except vigor.NoPoints as e:
+            raise HTTPException(422, str(e))
+        except tree_detect.NoImagery as e:
+            raise HTTPException(422, f"Citra tidak tersedia: {e}")
 
 
 class TreePoint(BaseModel):

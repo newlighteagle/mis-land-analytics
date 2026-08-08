@@ -36,6 +36,30 @@ Kolom `edited_at` mencatat kapan disunting. Pemisahan ini penting: angka jumlah 
 
 Semua perubahan masuk ke versi model yang sedang ditampilkan, sehingga draf tiap versi bisa diregistrasi terpisah.
 
+## Tahap 2: kategorisasi (`mla/vigor.py`)
+
+Setelah posisi titik dipastikan, tombol **🔬 Analisa kategori pohon** memberi label sehat/lemah/kosong pada seluruh titik lahan itu.
+
+Urutannya sengaja dipisah. Menilai kesehatan sebelum posisi benar hanya menyebarkan kesalahan posisi ke dalam angka kesehatan: titik yang meleset ke sela antar tajuk terbaca pucat, lalu pohon sehat tervonis mati — dan kesalahan itu tampak meyakinkan karena sudah berbentuk angka.
+
+Cara kerjanya:
+
+1. Ambil semua titik teregistrasi lahan itu, apa pun asalnya (`auto`, `moved`, `added`).
+2. Contoh kehijauan pada **cakram berjari-jari 1,75 m** di sekitar tiap titik — rata-rata seukuran tajuk, jauh lebih stabil daripada satu pixel.
+3. Bandingkan dengan median lahan itu sendiri memakai MAD:
+
+| Kategori | Ambang |
+|---|---|
+| `kosong` | < median − 3,0 MAD |
+| `lemah` | < median − 1,5 MAD |
+| `sehat` | selebihnya |
+
+Ambang sebaran dipakai, **bukan peringkat persentil**: persentil selalu menghasilkan proporsi tetap, sehingga kebun yang seragam sehat dan kebun yang banyak mati akan tampak sama persis.
+
+Hasil dicatat di kolom `score` (vigor 0–1) dan `category` tiap titik, serta diringkas ke `params.kategori` pada baris agregat. Endpoint: `POST /api/parcel/{pk}/categorize`.
+
+Kategori ini tetap **relatif antar pohon di lahan yang sama dan bukan diagnosis penyakit** — untuk Ganoderma dan sejenisnya perlu modul tersendiri plus verifikasi lapangan.
+
 ## Rencana lanjutan
 
 - **Ekspor data latih** dari titik `moved`/`added`/`verified` untuk melatih detektor CNN.

@@ -67,6 +67,9 @@
   table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
   th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eee; }
   #versionPick { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+  #catBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+  #runCategorize { width: 100%; }
+  #catResult:not(:empty) { margin-top: 7px; }
   #editBox { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
   #editToggle { width: 100%; background: #eee; color: #333; }
   #editToggle.on { background: #2d6a4f; color: #fff; }
@@ -171,6 +174,10 @@
       <div class="card" id="summaryCard" hidden>
         <h2>Ringkasan pohon</h2>
         <div id="summary"></div>
+        <div id="catBox">
+          <button id="runCategorize">🔬 Analisa kategori pohon</button>
+          <div id="catResult" class="muted"></div>
+        </div>
         <div id="editBox">
           <button id="editToggle">✏️ Mode registrasi titik</button>
           <div id="editHelp" class="muted" hidden>
@@ -612,6 +619,22 @@ map.on('click', async e => {
     geometry: { type: 'Point', coordinates: [body.lon, body.lat] },
   });
   refreshTrees();
+});
+
+// ---------- kategorisasi dari titik yang sudah diregistrasi ----------
+$('runCategorize').addEventListener('click', async () => {
+  if (!currentPk) return;
+  $('runCategorize').disabled = true;
+  $('catResult').innerHTML = 'Mengambil citra & menilai tiap tajuk…';
+  try {
+    const res = await fetch(`/api/parcel/${currentPk}/categorize`, { method: 'POST' });
+    const r = await res.json();
+    if (!res.ok) { $('catResult').innerHTML = `⚠️ ${r.detail ?? 'Gagal'}`; return; }
+    $('catResult').innerHTML =
+      `${r.n_points} titik dinilai dari citra ${r.image_source} z${r.zoom} · ${r.vigor_version}`;
+    await loadTrees();
+    loadHistory();
+  } finally { $('runCategorize').disabled = false; }
 });
 
 $('delPoint').addEventListener('click', async () => {
