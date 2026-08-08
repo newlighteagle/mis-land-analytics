@@ -8,13 +8,35 @@ Deteksi puncak lokal per mahkota gagal di resolusi ini — maksimal 172 dari ~26
 
 Konsekuensinya harus dipahami: hasilnya **posisi model**, bukan deteksi individual. Titik mengikuti pola tanam terukur, jadi akurat di kebun teratur dan meleset di bagian yang kosong, mati, atau tidak beraturan. Modul ini **tidak bisa** menemukan pohon hilang — untuk itu tetap butuh deteksi sejati dengan citra ≤0,5 m/px.
 
-## Cara kerja (`lattice_fit/v1`)
+## Cara kerja (`lattice_fit/v2`)
 
 1. **Patch & detrend** — ambil kotak di dalam persil, buang gradien besar (`gaussian_filter σ=12`), beri window Hanning agar tepi tidak mencemari spektrum.
 2. **Spektrum daya 2D** — FFT, ambil puncak lokal yang jatuh pada rentang jarak tanam masuk akal (6–13 m).
 3. **Basis kisi** — puncak terkuat jadi vektor resiprokal `b1`; puncak berikutnya yang menyudut 40°–140° terhadapnya jadi `b2`. Basis nyata `A = inv(Bᵀ)` (karena `aᵢ·bⱼ = δᵢⱼ`), kolomnya vektor kisi `a1, a2` dalam pixel.
-4. **Fitting fase** — geser titik asal kisi pada 12×12 posisi di dalam satu sel, pilih yang rata-rata respons mahkotanya paling kuat. Polaritas dicoba dua arah karena mahkota bisa **lebih gelap** dari sela (kanopi dewasa di tanah terang) atau **lebih terang** (sawit muda di tanah gundul).
-5. **Titik & hitung** — semua titik kisi di dalam poligon jadi posisi pohon; jumlahnya jadi `tree_count`, dan `SPH = 10.000 / luas sel kisi`.
+4. **Fitting fase + polaritas** — geser titik asal kisi pada 24×24 posisi di dalam satu sel. Mahkota bisa lebih gelap dari sela (kanopi dewasa) atau lebih terang (sawit muda di tanah gundul), jadi kedua polaritas dicoba.
+5. **Penyetelan tiap titik (snap)** — tiap titik digeser ke respons terkuat dalam radius 0,3 × jarak tanam. Radius sengaja dibatasi di bawah setengah jarak tanam supaya titik tetap terikat kisinya dan tidak berubah jadi deteksi bebas yang terbukti tidak andal.
+6. **Titik & hitung** — semua titik kisi di dalam poligon jadi posisi pohon; jumlahnya jadi `tree_count`, dan `SPH = 10.000 / luas sel kisi`.
+7. **Kategori vigor** — tiap titik diberi kategori dari kehijauan mahkotanya (lihat di bawah).
+
+### Pemilihan polaritas: jangan pakai magnitudo
+
+Versi pertama memilih polaritas dari **besarnya** respons rata-rata. Itu salah dan terlihat jelas di citra 0,3 m: bayangan antar mahkota jauh lebih ekstrem daripada mahkotanya sendiri, sehingga kriteria magnitudo selalu menempelkan titik ke **sela**, bukan ke pohon.
+
+Kriteria yang dipakai sekarang bersifat fisik: mahkota adalah vegetasi, jadi dipilih polaritas yang titik-titiknya **paling hijau** (`2G − R − B`). Setelah diperbaiki, polaritas terpilih jadi "terang" dan titik jatuh di pusat mahkota.
+
+## Kategori vigor per pohon
+
+Tiap titik dinilai dari kehijauan di posisinya, lalu dibandingkan dengan **median persil itu sendiri** memakai MAD (median absolute deviation):
+
+| Kategori | Ambang | Arti |
+|---|---|---|
+| `kosong` | < median − 3,0 MAD | Tidak ada mahkota sehat di posisi tanam ini — bisa mati, tumbang, belum disulam, atau tidak pernah ditanam |
+| `lemah` | < median − 1,5 MAD | Mahkota lebih pucat/kecil dari tetangganya |
+| `sehat` | selebihnya | — |
+
+**Kenapa MAD, bukan persentil.** Versi awal memakai peringkat persentil (10% terbawah = `kosong`). Itu tautologi: setiap persil otomatis menghasilkan proporsi identik 70/20/10, sehingga kebun yang seragam sehat dan kebun yang banyak kosong tampak sama persis. Dengan ambang sebaran, jumlah tiap kategori mengikuti keadaan lahan — kebun seragam wajar menghasilkan nyaris nol `kosong`.
+
+Kategori ini **indikasi vigor dari citra, bukan diagnosis penyakit**. Untuk deteksi Ganoderma dan sejenisnya tetap perlu modul tersendiri plus verifikasi lapangan.
 
 ## Penjagaan kualitas
 
@@ -44,10 +66,14 @@ Pemeriksaan visual: titik kisi jatuh tepat di mahkota gelap di seluruh persil.
 ## Pemakaian
 
 ```bash
+# satu lahan
 .venv/bin/python analyze.py tree-grid --parcel-id ITM.0106.A.14.06.06.2017
+
+# satu lembaga tani sekaligus (±1,5 detik per lahan berkat cache tile)
+.venv/bin/python batch_analyze.py --group "KUD Intan Makmur"
 ```
 
-Dashboard: tombol **"Petakan pohon dari citra"** pada kartu *Peta pohon (kisi tanam)*.
+Dashboard: tombol **"Petakan pohon dari citra"** pada kartu *Peta pohon (kisi tanam)* di menu *Analisa baru*.
 
 | Fungsi | Peran |
 |---|---|

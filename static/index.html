@@ -46,8 +46,19 @@
   #legend label { display: flex; align-items: center; gap: 7px; cursor: pointer; padding: 2px 0; }
   #legend hr { border: 0; border-top: 1px solid #e0e0e0; margin: 8px 0 7px; }
   #legend .sw { width: 18px; height: 0; border-top-width: 3px; border-top-style: solid; }
-  #legend .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff4d4d;
-                 border: 1px solid #fff; margin: 0 4px; }
+  #legend .dot { width: 11px; height: 11px; border-radius: 50%; background: #00E5FF;
+                 border: 1.5px solid #0b0b0b; margin: 0 4px; }
+  /* popup titik pohon */
+  .maplibregl-popup-content { padding: 0; border-radius: 10px; overflow: hidden;
+                              box-shadow: 0 3px 14px rgba(0,0,0,.3); }
+  .maplibregl-popup-close-button { color: #fff; font-size: 17px; right: 3px; top: 1px; }
+  .pop-head { padding: 8px 12px; color: #0b0b0b; }
+  .pop-no { display: block; font-size: 11px; opacity: .75; letter-spacing: .03em; }
+  .pop-cat { font-size: 15px; font-weight: 700; }
+  .pop-body { padding: 10px 12px 12px; }
+  .pop-note { color: #555; font-size: 12px; margin-bottom: 8px; }
+  .pop-row { display: flex; justify-content: space-between; font-size: 12px; }
+  .pop-coord { color: #777; font-size: 11px; margin-top: 9px; }
 </style>
 </head>
 <body>
@@ -79,6 +90,10 @@
 
   <div id="detail">
     <dl id="attrs"></dl>
+    <div class="card" id="summaryCard" hidden>
+      <h2>Ringkasan pohon</h2>
+      <div id="summary"></div>
+    </div>
     <div class="card">
       <h2>Hasil analisa</h2>
       <div id="history" class="muted">Belum ada.</div>
@@ -107,11 +122,20 @@
   <label><input type="checkbox" id="lyrDone" checked>
     <span class="sw" style="border-top-color:#4cc9f0"></span> Lahan teranalisa</label>
   <label><input type="checkbox" id="lyrTrees" checked>
-    <span class="dot"></span> Titik pohon sawit</label>
+    <span class="dot"></span> Titik pohon</label>
+  <hr>
+  <h3>Titik pohon</h3>
+  <label><input type="checkbox" id="catSehat" checked>
+    <span class="dot" style="background:#00E5FF"></span> Sehat <span class="muted" id="nSehat"></span></label>
+  <label><input type="checkbox" id="catLemah" checked>
+    <span class="dot" style="background:#FFD400"></span> Lemah <span class="muted" id="nLemah"></span></label>
+  <label><input type="checkbox" id="catKosong" checked>
+    <span class="dot" style="background:#FF1744"></span> Kosong / mati <span class="muted" id="nKosong"></span></label>
   <hr>
   <h3>Peta dasar</h3>
-  <label><input type="radio" name="base" id="baseGoogle" checked> Google Satellite <span class="muted">(0,3 m)</span></label>
-  <label><input type="radio" name="base" id="baseEsri"> Esri World Imagery <span class="muted">(0,6 m)</span></label>
+  <label><input type="radio" name="base" id="baseSat" checked> Satelit <span class="muted">(Google, 0,3 m)</span></label>
+  <label><input type="radio" name="base" id="baseLight"> Terang</label>
+  <label><input type="radio" name="base" id="baseDark"> Gelap</label>
 </div>
 <script>
 const map = new maplibregl.Map({
@@ -125,17 +149,23 @@ const map = new maplibregl.Map({
         tiles: ['https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'],
         attribution: 'Imagery © Google'
       },
-      esri: {
-        type: 'raster', tileSize: 256, maxzoom: 19,
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-        attribution: 'Imagery © Esri, Maxar, Earthstar Geographics'
+      light: {
+        type: 'raster', tileSize: 256, maxzoom: 20,
+        tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'],
+        attribution: '© OpenStreetMap, © CARTO'
+      },
+      dark: {
+        type: 'raster', tileSize: 256, maxzoom: 20,
+        tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+        attribution: '© OpenStreetMap, © CARTO'
       }
     },
-    // dua basemap dimuat sekaligus; pemilihan lewat visibility, bukan ganti style,
-    // supaya layer analisa di atasnya tidak perlu dibangun ulang
+    // ketiganya dimuat sekaligus dan dipilih lewat visibility, bukan ganti
+    // style, supaya layer analisa di atasnya tidak perlu dibangun ulang
     layers: [
       { id: 'google', type: 'raster', source: 'google' },
-      { id: 'esri', type: 'raster', source: 'esri', layout: { visibility: 'none' } },
+      { id: 'light', type: 'raster', source: 'light', layout: { visibility: 'none' } },
+      { id: 'dark', type: 'raster', source: 'dark', layout: { visibility: 'none' } },
     ]
   }
 });
@@ -161,12 +191,43 @@ map.on('load', () => {
   map.addSource('trees', { type: 'geojson', data: empty() });
   map.addLayer({ id: 'trees', type: 'circle', source: 'trees',
     paint: {
-      'circle-color': '#ff4d4d',
-      'circle-opacity': 0.9,
+      // warna dipilih berjauhan di roda warna supaya tetap terbaca di atas
+      // citra yang didominasi hijau gelap
+      'circle-color': ['match', ['get', 'category'],
+        'sehat', '#00E5FF', 'lemah', '#FFD400', 'kosong', '#FF1744', '#00E5FF'],
+      'circle-opacity': 0.95,
       // titik ikut membesar saat zoom in supaya tetap terbaca di skala persil
-      'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 1.5, 17, 3, 20, 6],
-      'circle-stroke-color': '#fff', 'circle-stroke-width': 0.5,
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4, 20, 8],
+      'circle-stroke-color': '#0b0b0b', 'circle-stroke-width': 1.4,
     } });
+  map.on('click', 'trees', e => {
+    const f = e.features[0], p = f.properties;
+    const meta = {
+      sehat:  ['#00E5FF', 'Sehat', 'Mahkota terdeteksi jelas dan rimbun'],
+      lemah:  ['#FFD400', 'Lemah', 'Mahkota terdeteksi tapi lebih pucat dari sekitarnya'],
+      kosong: ['#FF1744', 'Kosong / mati', 'Tidak ada mahkota di posisi tanam ini'],
+    }[p.category] ?? ['#999', p.category ?? '-', ''];
+    const pct = p.score != null ? Math.round(p.score * 100) : null;
+    new maplibregl.Popup({ closeButton: true, maxWidth: '260px', offset: 12 })
+      .setLngLat(f.geometry.coordinates)
+      .setHTML(`
+        <div class="pop">
+          <div class="pop-head" style="background:${meta[0]}">
+            <span class="pop-no">Pohon #${p.no}</span>
+            <span class="pop-cat">${meta[1]}</span>
+          </div>
+          <div class="pop-body">
+            <div class="pop-note">${meta[2]}</div>
+            ${pct != null ? `
+              <div class="pop-row"><span>Vigor mahkota</span><b>${pct}%</b></div>
+              <div class="bar"><i style="width:${pct}%;background:${meta[0]}"></i></div>` : ''}
+            <div class="pop-coord">📍 ${(+p.lat).toFixed(6)}, ${(+p.lon).toFixed(6)}</div>
+          </div>
+        </div>`)
+      .addTo(map);
+  });
+  map.on('mouseenter', 'trees', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'trees', () => map.getCanvas().style.cursor = '');
   loadGroups();
   wireLegend();
 });
@@ -184,12 +245,22 @@ function wireLegend() {
     $(box).addEventListener('change', apply);
     apply();
   }
-  const applyBase = () => {
-    map.setLayoutProperty('google', 'visibility', $('baseGoogle').checked ? 'visible' : 'none');
-    map.setLayoutProperty('esri', 'visibility', $('baseEsri').checked ? 'visible' : 'none');
-  };
-  $('baseGoogle').addEventListener('change', applyBase);
-  $('baseEsri').addEventListener('change', applyBase);
+  for (const [, , , box] of CAT) $(box).addEventListener('change', applyCatFilter);
+  applyCatFilter();
+
+  const BASES = [['baseSat', 'google'], ['baseLight', 'light'], ['baseDark', 'dark']];
+  const applyBase = () => BASES.forEach(([box, layer]) =>
+    map.setLayoutProperty(layer, 'visibility', $(box).checked ? 'visible' : 'none'));
+  BASES.forEach(([box]) => $(box).addEventListener('change', applyBase));
+  applyBase();
+}
+
+// Saring titik menurut kategori supaya bisa melihat mis. hanya yang mati
+function applyCatFilter() {
+  const on = CAT.filter(([key, , , box]) => $(box).checked).map(([key]) => key);
+  map.setFilter('trees', on.length
+    ? ['in', ['get', 'category'], ['literal', on]]
+    : ['==', ['get', 'category'], '__none__']);
 }
 
 const $ = id => document.getElementById(id);
@@ -311,6 +382,7 @@ async function selectParcel(pk) {
   ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   $('tcResult').innerHTML = '';
   $('gridResult').innerHTML = '';
+  $('summaryCard').hidden = true;
   map.getSource('parcel').setData(f);
   loadTrees();
   const [minX, minY, maxX, maxY] = f.geometry.bbox ?? bboxOf(f.geometry);
@@ -334,10 +406,37 @@ async function loadHistory() {
     : 'Belum ada.';
 }
 
+const CAT = [
+  ['sehat',  '#00E5FF', 'Sehat',         'catSehat',  'nSehat'],
+  ['lemah',  '#FFD400', 'Lemah',         'catLemah',  'nLemah'],
+  ['kosong', '#FF1744', 'Kosong / mati', 'catKosong', 'nKosong'],
+];
+
 async function loadTrees() {
   const fc = await (await fetch(`/api/parcel/${currentPk}/trees`)).json();
   map.getSource('trees').setData(fc);
+  renderSummary(fc.features);
   return fc.features.length;
+}
+
+function renderSummary(features) {
+  const count = c => features.filter(f => f.properties.category === c).length;
+  for (const [key, , , , span] of CAT)
+    $(span).textContent = features.length ? `(${count(key)})` : '';
+  if (!features.length) { $('summaryCard').hidden = true; return; }
+  $('summaryCard').hidden = false;
+  const n = features.length;
+  $('summary').innerHTML = `<div class="big">${n.toLocaleString('id')} pohon</div>` +
+    CAT.map(([key, color, label]) => {
+      const k = count(key), pct = (k / n * 100).toFixed(1);
+      return `<div style="margin-top:6px">
+        <span class="dot" style="background:${color};display:inline-block;width:10px;height:10px;
+              border-radius:50%;margin-right:6px"></span>${label}
+        <b style="float:right">${k} <span class="muted">(${pct}%)</span></b>
+        <span class="bar"><i style="width:${pct}%;background:${color}"></i></span></div>`;
+    }).join('') +
+    `<div class="muted" style="margin-top:8px">Kategori dari kehijauan mahkota, <b>relatif</b>
+     antar pohon di lahan ini — bukan diagnosis penyakit. Klik titik di peta untuk detail.</div>`;
 }
 
 // ---------- Menjalankan analisa (hanya dari menu "Analisa baru") ----------

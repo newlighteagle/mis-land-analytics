@@ -114,6 +114,7 @@ def detect(prod, local, ident: str, sph: float | None = None) -> dict:
 
     area_ha = float(parcel["area"])
     params = {
+        "image_source": img.source,
         "zoom": img.z,
         "meters_per_pixel": round(mpp, 4),
         "sph_assumed": sph_assumed,
@@ -163,16 +164,21 @@ def points_for(local, land_parcel_pk: str, method: str = METHOD) -> dict:
     """Titik pohon sebagai GeoJSON FeatureCollection."""
     with local.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            """SELECT ST_X(geom) AS lon, ST_Y(geom) AS lat, score
-               FROM analytics.tree WHERE land_parcel_pk = %s AND method = %s""",
+            """SELECT id, ST_X(geom) AS lon, ST_Y(geom) AS lat, score, category
+               FROM analytics.tree WHERE land_parcel_pk = %s AND method = %s
+               ORDER BY id""",
             (land_parcel_pk, method),
         )
         rows = cur.fetchall()
     return {
         "type": "FeatureCollection",
         "features": [
-            {"type": "Feature", "properties": {"score": r["score"]},
+            {"type": "Feature",
+             "properties": {"id": r["id"], "no": i + 1,
+                            "score": round(r["score"], 3) if r["score"] is not None else None,
+                            "category": r["category"],
+                            "lon": round(r["lon"], 6), "lat": round(r["lat"], 6)},
              "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]}}
-            for r in rows
+            for i, r in enumerate(rows)
         ],
     }

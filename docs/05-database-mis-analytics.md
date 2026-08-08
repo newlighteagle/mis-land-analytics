@@ -39,7 +39,8 @@ Titik per pohon hasil deteksi citra — dibutuhkan modul kesehatan/HPT yang beke
 | `land_parcel_pk` | `text` | = `tbl_land_parcel.id` |
 | `method` | `text` | Selaras dengan `method` di `tree_count`: `grid_fit` (dipakai sekarang), `detection_esri` (eksperimen gagal) |
 | `geom` | `geometry(Point, 4326)` | Posisi pohon, index GiST |
-| `score` | `real` | Kekuatan puncak deteksi, dinormalisasi 0–1 dalam persil |
+| `score` | `real` | Vigor 0–1 (dari simpangan kehijauan terhadap median persil) |
+| `category` | `text` | `sehat` \| `lemah` \| `kosong` — lihat [13](13-modul-tree-grid.md) |
 | `detected_at` | `timestamptz` | |
 
 Pola tulisnya **delete + insert**: satu run deteksi mengganti seluruh titik persil untuk method yang sama, konsisten dengan upsert satu-baris di `tree_count`.

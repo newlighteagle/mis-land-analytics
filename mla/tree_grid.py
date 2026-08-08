@@ -18,17 +18,29 @@ import numpy as np
 from PIL import Image, ImageDraw
 from psycopg.rows import dict_row
 from scipy.ndimage import gaussian_filter
+from scipy.spatial import cKDTree
+from skimage.feature import peak_local_max
 
 from mla import imagery
 from mla.tree_count import resolve_parcel
 from mla.tree_detect import NoImagery, bounds_of, parcel_mask, rings_of
 
 METHOD = "grid_fit"
-GRID_VERSION = "lattice_fit/v1"
+GRID_VERSION = "lattice_fit/v2"   # v2: sumber Google 0,3 m + snap + kategori vigor
 
 MIN_SPACING_M = 6.0    # rentang jarak tanam yang dianggap masuk akal
 MAX_SPACING_M = 13.0
-PHASE_STEPS = 12       # resolusi pencarian fase per sumbu kisi
+PHASE_STEPS = 24       # resolusi pencarian fase per sumbu kisi
+CROWN_SIGMA_M = 1.0    # skala penghalusan untuk mencari puncak mahkota (m)
+CAND_MIN_DIST = 0.45   # jarak minimum antar kandidat mahkota, x jarak tanam
+MATCH_RADIUS = 0.40    # toleransi pencocokan titik kisi <-> kandidat, x jarak tanam
+
+# Ambang vigor untuk titik yang BERHASIL dicocokkan ke mahkota, dalam satuan
+# MAD di bawah median. Sengaja bukan peringkat persentil: persentil selalu
+# menghasilkan proporsi tetap (10% terbawah selalu 10%), sehingga kebun seragam
+# sehat dan kebun banyak kosong akan tampak sama persis.
+CAT_WEAK_MAD = 2.0
+CATEGORIES = ("kosong", "lemah", "sehat")
 
 # Rentang jarak tanam sawit yang lazim di lapangan (SPH ~110-180). Di luar ini
 # biasanya basis kisi yang terpilih bukan yang primitif — mis. diagonal kisi
@@ -117,7 +129,7 @@ def fit_lattice(patch: np.ndarray, mpp: float) -> dict:
 
 
 def _crown_response(rgb: np.ndarray, sigma_px: float):
-    """Respons mahkota + tandanya.
+    """Respons mahkota: band-pass pada skala mahkota.
 
     Mahkota bisa lebih gelap dari sela (kanopi dewasa di tanah terang) atau
     lebih terang (sawit muda di tanah gundul), jadi kedua polaritas dicoba
@@ -126,6 +138,35 @@ def _crown_response(rgb: np.ndarray, sigma_px: float):
     gray = rgb.astype(np.float32).mean(axis=2)
     sm = gaussian_filter(gray, sigma=sigma_px)
     return sm - gaussian_filter(gray, sigma=sigma_px * 4)
+
+
+def crown_candidates(green, mask, spacing_px, sigma_px):
+    """Puncak lokal peta kehijauan = calon posisi mahkota nyata.
+
+    Ini yang jadi acuan posisi, bukan tebakan respons: tiap kandidat adalah
+    titik di citra yang memang paling hijau di lingkungannya.
+    """
+    cm = gaussian_filter(green, sigma=sigma_px)
+    pk = peak_local_max(cm, min_distance=max(2, int(CAND_MIN_DIST * spacing_px)),
+                        labels=mask, exclude_border=False)
+    return pk[:, ::-1].astype(float), cm      # -> (x, y)
+
+
+def match_to_candidates(pts, cand, radius_px):
+    """Cocokkan tiap titik kisi ke kandidat mahkota terdekat dalam radius.
+
+    Return (titik hasil, ketemu, jarak). Titik yang tidak menemukan kandidat
+    tetap di posisi kisinya — itu justru sinyal: di posisi tanam tersebut tidak
+    ada mahkota yang menonjol.
+    """
+    if len(cand) == 0:
+        return pts, np.zeros(pts.shape[1], bool), np.full(pts.shape[1], np.inf)
+    tree = cKDTree(cand)
+    dist, idx = tree.query(pts.T, k=1)
+    hit = dist <= radius_px
+    out = pts.copy()
+    out[:, hit] = cand[idx[hit]].T
+    return out, hit, dist
 
 
 def _lattice_points(a1, a2, origin, shape):
@@ -142,8 +183,14 @@ def _lattice_points(a1, a2, origin, shape):
     return pts[:, inside]
 
 
-def fit_phase(response, mask, lat):
-    """Geser kisi untuk memaksimalkan |respons| rata-rata di titik kisi."""
+def greenness(rgb: np.ndarray) -> np.ndarray:
+    """Indeks kehijauan visible-band (2G - R - B), dihaluskan tipis."""
+    r, g, b = (rgb[..., i].astype(np.float32) for i in range(3))
+    return gaussian_filter(2.0 * g - r - b, sigma=1.0)
+
+
+def _best_phase(response, mask, lat):
+    """Fase kisi dengan respons rata-rata tertinggi (untuk polaritas apa adanya)."""
     a1, a2 = lat["a1"], lat["a2"]
     best = None
     for i in range(PHASE_STEPS):
@@ -156,13 +203,68 @@ def fit_phase(response, mask, lat):
             if sel.sum() < 5:
                 continue
             score = float(response[rows[sel], cols[sel]].mean())
-            for sign in (1.0, -1.0):
-                s = score * sign
-                if best is None or s > best[0]:
-                    best = (s, origin, sign)
+            if best is None or score > best[0]:
+                best = (score, origin)
+    return best
+
+
+def fit_phase(mask, lat, cand, match_px):
+    """Pilih fase kisi yang paling banyak mencocokkan kandidat mahkota.
+
+    Kriterianya jumlah titik yang menemukan mahkota — bukan besarnya respons.
+    Versi sebelumnya memakai magnitudo respons dan selalu tertarik ke bayangan
+    antar mahkota, karena bayangan jauh lebih ekstrem daripada mahkotanya.
+    """
+    a1, a2 = lat["a1"], lat["a2"]
+    tree = cKDTree(cand) if len(cand) else None
+    best = None
+    for i in range(PHASE_STEPS):
+        for j in range(PHASE_STEPS):
+            origin = a1 * (i / PHASE_STEPS) + a2 * (j / PHASE_STEPS)
+            pts = _lattice_points(a1, a2, origin, mask.shape)
+            cols = np.clip(pts[0].astype(int), 0, mask.shape[1] - 1)
+            rows = np.clip(pts[1].astype(int), 0, mask.shape[0] - 1)
+            pts = pts[:, mask[rows, cols]]
+            if pts.shape[1] < 5:
+                continue
+            if tree is None:
+                score = 0.0
+            else:
+                dist, _ = tree.query(pts.T, k=1)
+                score = float((dist <= match_px).mean() - 0.05 * dist.mean() / match_px)
+            if best is None or score > best[0]:
+                best = (score, origin, pts)
     if best is None:
         raise NoLattice("Kisi tidak bisa dipasang di dalam persil")
     return best[1], best[2], best[0]
+
+
+def classify(pts, hit, green, mask):
+    """Skor vigor tiap titik + kategori berdasar simpangan dari median persil.
+
+    Titik dengan kehijauan jauh di bawah median tetangganya berarti di posisi
+    tanam itu tidak ada mahkota sehat — bisa pohon mati, tumbang, belum
+    disulam, atau memang tidak pernah ditanam. Ambangnya memakai MAD supaya
+    jumlah tiap kategori mengikuti keadaan lahan; kebun yang seragam sehat
+    menghasilkan nyaris nol "kosong".
+
+    Kategori ini indikasi vigor dari citra, **bukan diagnosis penyakit**.
+    """
+    h, w = green.shape
+    c = np.clip(pts[0].astype(int), 0, w - 1)
+    r = np.clip(pts[1].astype(int), 0, h - 1)
+    vals = green[r, c].astype(np.float64)
+    if len(vals) == 0:
+        return np.array([]), []
+    ref = vals[hit] if hit.any() else vals          # acuan = pohon yang ketemu
+    median = float(np.median(ref))
+    mad = float(np.median(np.abs(ref - median))) or 1e-6
+    z = (vals - median) / mad                       # simpangan robust
+    # 'kosong' ditentukan oleh TIDAK ADANYA mahkota di posisi tanam itu,
+    # bukan oleh peringkat kehijauan — jadi kebun yang penuh bisa nol kosong.
+    cats = np.where(~hit, "kosong", np.where(z < -CAT_WEAK_MAD, "lemah", "sehat"))
+    vigor = np.clip((z + 4.0) / 8.0, 0.0, 1.0)
+    return vigor, list(cats)
 
 
 def fit(prod, local, ident: str) -> dict:
@@ -178,15 +280,19 @@ def fit(prod, local, ident: str) -> dict:
 
     patch = _detrended_patch(img.rgb, mask)
     lat = fit_lattice(patch, mpp)
-    response = _crown_response(img.rgb, sigma_px=max(1.0, 2.0 / mpp))
-    origin, sign, score = fit_phase(response * 1.0, mask, lat)
+    green = greenness(img.rgb)
 
-    pts = _lattice_points(lat["a1"], lat["a2"], origin, mask.shape)
-    cols = np.clip(pts[0].astype(int), 0, mask.shape[1] - 1)
-    rows = np.clip(pts[1].astype(int), 0, mask.shape[0] - 1)
-    sel = mask[rows, cols]
-    pts = pts[:, sel]
+    spacing_px = min(np.linalg.norm(lat["a1"]), np.linalg.norm(lat["a2"]))
+    match_px = max(2.0, MATCH_RADIUS * spacing_px)
+    cand, _ = crown_candidates(green, mask, spacing_px,
+                               sigma_px=max(1.0, CROWN_SIGMA_M / mpp))
 
+    _, pts, score = fit_phase(mask, lat, cand, match_px)
+    pts, hit, dist = match_to_candidates(pts, cand, match_px)
+
+    vigor, categories = classify(pts, hit, green, mask)
+    match_rate = float(hit.mean()) if len(hit) else 0.0
+    median_offset_m = float(np.median(dist[hit]) * mpp) if hit.any() else None
     area_ha = float(parcel["area"])
     a1, a2 = lat["a1"], lat["a2"]
     cell_area_m2 = abs(a1[0] * a2[1] - a1[1] * a2[0]) * mpp * mpp  # luas sel kisi
@@ -203,6 +309,7 @@ def fit(prod, local, ident: str) -> dict:
     confidence = "medium" if not warnings else "low"
 
     params = {
+        "image_source": img.source,
         "zoom": img.z,
         "meters_per_pixel": round(mpp, 4),
         "spacing_a1_m": round(s1, 2),
@@ -210,10 +317,14 @@ def fit(prod, local, ident: str) -> dict:
         "row_angle_deg": round(lat["angle_deg"], 1),
         "cell_area_m2": round(float(cell_area_m2), 2),
         "sph_from_lattice": round(10_000.0 / cell_area_m2, 1) if cell_area_m2 else None,
-        "crown_polarity": "gelap" if sign < 0 else "terang",
+        "n_candidates": int(len(cand)),
+        "match_rate": round(match_rate, 3),
+        "median_offset_m": round(median_offset_m, 2) if median_offset_m is not None else None,
         "phase_score": round(float(score), 3),
+        "kategori": {c: int(categories.count(c)) for c in CATEGORIES},
         "warnings": warnings,
-        "note": "posisi model dari kisi tanam terukur, bukan deteksi tiap pohon",
+        "note": "posisi model dari kisi tanam terukur, bukan deteksi tiap pohon; "
+                "kategori vigor bersifat relatif antar pohon di persil yang sama",
     }
 
     with local.cursor(row_factory=dict_row) as cur:
@@ -221,9 +332,10 @@ def fit(prod, local, ident: str) -> dict:
                     (parcel["id"], METHOD))
         if points:
             cur.executemany(
-                """INSERT INTO analytics.tree (land_parcel_pk, method, geom, score)
-                   VALUES (%s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), NULL)""",
-                [(parcel["id"], METHOD, lon, lat_) for lon, lat_ in points],
+                """INSERT INTO analytics.tree (land_parcel_pk, method, geom, score, category)
+                   VALUES (%s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s)""",
+                [(parcel["id"], METHOD, lon, lat_, float(v), c)
+                 for (lon, lat_), v, c in zip(points, vigor, categories)],
             )
         cur.execute(
             """INSERT INTO analytics.tree_count

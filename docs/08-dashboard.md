@@ -41,11 +41,12 @@ Pencarian penuh ke database prod (ketik ≥3 karakter ID lahan atau nama petani,
 
 1. **Pilih lembaga tani** → **pilih lahan** dari daftarnya (menu Hasil analisa), atau **cari lahan** yang belum dianalisa (menu Analisa baru).
 2. Panel menampilkan atribut lahan (petani, kelompok, luas, komoditas, status lahan, blok, PSR); peta menggambar poligon lahan (kuning) dan zoom ke bounding box-nya (maks. zoom 17), plus titik pohon merah bila sudah dipetakan.
-3. Kartu **Hasil analisa** menampilkan semua hasil tersimpan untuk lahan itu — metode, jumlah pohon, SPH, confidence, tanggal (per metode; menjalankan ulang metode yang sama menimpa hasil lamanya, lihat [05-database-mis-analytics.md](05-database-mis-analytics.md)).
+3. Kartu **Ringkasan pohon** menampilkan jumlah total dan sebaran kategori (sehat / lemah / kosong) dengan batang proporsi. **Klik titik pohon di peta** untuk popup berisi nomor pohon, kategori, vigor relatif, dan koordinatnya.
+4. Kartu **Hasil analisa** menampilkan semua hasil tersimpan untuk lahan itu — metode, jumlah pohon, SPH, confidence, tanggal (per metode; menjalankan ulang metode yang sama menimpa hasil lamanya, lihat [05-database-mis-analytics.md](05-database-mis-analytics.md)).
 
 ## Detail implementasi
 
-- Tiga layer peta bertumpuk, semuanya **garis tanpa fill**: `done` (biru, ikhtisar lahan teranalisa), `parcel` (kuning, lahan terpilih), `trees` (titik merah, radius ikut skala zoom). Layer `done-fill` tetap ada dengan `fill-opacity: 0` — tidak terlihat, tapi itulah yang menangkap klik poligon.
+- Tiga layer peta bertumpuk: `done` (garis biru, ikhtisar lahan teranalisa), `parcel` (garis kuning, lahan terpilih), `trees` (titik, radius ikut skala zoom, **warna menurut kategori**: hijau `sehat`, kuning `lemah`, merah `kosong`). Layer `done-fill` tetap ada dengan `fill-opacity: 0` — tidak terlihat, tapi itulah yang menangkap klik poligon.
 - **Legenda di kanan atas peta** menyalakan/mematikan tiap layer lewat `setLayoutProperty(..., 'visibility', ...)`. Mematikan "Lahan teranalisa" ikut mematikan `done-fill`, supaya klik tidak nyasar ke poligon yang tak terlihat. Kontrol zoom bawaan dipindah ke kanan bawah agar tidak menutupi legenda.
 - **Pilihan peta dasar** di legenda: Google Satellite (default, 0,30 m/px) atau Esri World Imagery (0,60 m/px). Keduanya dimuat sebagai layer raster sekaligus dan dipilih lewat visibility — bukan ganti style — supaya layer analisa di atasnya tidak perlu dibangun ulang.
 
