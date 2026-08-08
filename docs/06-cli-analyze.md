@@ -1,0 +1,59 @@
+# CLI: `analyze.py`
+
+Entry point analisa per persil dari terminal. Satu subcommand per modul.
+
+## Pemakaian
+
+```bash
+# Estimasi baseline dengan SPH default (136 pohon/ha):
+.venv/bin/python analyze.py tree-count --parcel-id TJP.0001.A.14.06.06.2018
+
+# Override kerapatan (mis. kebun rapat 128 pohon/ha):
+.venv/bin/python analyze.py tree-count --parcel-id TJP.0001.A.14.06.06.2018 --sph 128
+
+# Pakai primary key (wajib jika parcel_id ganda):
+.venv/bin/python analyze.py tree-count --parcel-id cmrsro65k00ma4c678cews26p
+```
+
+## Argumen `tree-count`
+
+| Argumen | Wajib | Arti |
+|---|---|---|
+| `--parcel-id` | Ya | ID lahan (`parcel_id`) **atau** primary key (`id`) dari `tbl_land_parcel`. Keduanya dicoba sekaligus. |
+| `--sph` | Tidak | Kerapatan pohon/ha. Default 136 (lihat [09-modul-tree-count.md](09-modul-tree-count.md)). |
+
+## Output
+
+JSON baris hasil (setelah di-upsert ke `analytics.tree_count`), contoh:
+
+```json
+{
+  "id": 1,
+  "land_parcel_pk": "cmrsro65k00ma4c678cews26p",
+  "parcel_id": "TJP.0001.A.14.06.06.2018",
+  "method": "baseline_density",
+  "model_version": "baseline_density/v1",
+  "image_date": null,
+  "tree_count": 288,
+  "sph_used": 136.0,
+  "area_ha": 2.12,
+  "confidence": "low",
+  "params": {
+    "sph_source": "default",
+    "year_hint_from_parcel_id": 2018,
+    "crop_type": null,
+    "is_psr": false
+  },
+  "computed_at": "2026-08-08T14:13:00+07:00"
+}
+```
+
+## Error & exit
+
+| Kondisi | Perilaku |
+|---|---|
+| Persil tidak ditemukan / tidak aktif | Exit non-zero, pesan `Persil tidak ditemukan: <ident>` |
+| `parcel_id` cocok >1 persil aktif | Exit non-zero, pesan berisi daftar PK yang bisa dipakai |
+| `.env` tidak lengkap | `KeyError` pada `PROD_DATABASE_URL` / `LOCAL_DATABASE_URL` |
+
+Koneksi prod dan lokal selalu ditutup di blok `finally`, apa pun hasilnya.
